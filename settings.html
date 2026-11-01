@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Claude Duo</title>
+<link rel="stylesheet" href="/glass.css">
+<style>
+main{padding:36px 16px 16px;font-size:13px}
+header{display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+h1{font-size:18px;font-weight:600;margin:0 10px 0 0;letter-spacing:-.01em}
+#saved{margin-left:auto;margin-right:4px;font-size:12px;color:var(--ok);opacity:0;transition:opacity .3s}#saved.on{opacity:1}
+.cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+@media(max-width:720px){.cols{grid-template-columns:1fr}}
+h3{margin:4px 4px 6px;font-size:11px;font-weight:700;color:var(--mute);text-transform:uppercase;letter-spacing:.05em}
+h3:not(:first-child){margin-top:14px}
+.card{padding:4px 14px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0}
+.row+.row{border-top:1px solid var(--track)}.row .d{color:var(--mute);font-size:11px;margin-top:1px}
+.seg{display:flex;background:var(--well);border-radius:999px;padding:3px;box-shadow:inset 0 1px 3px rgba(0,0,0,.12)}
+.seg button{border:0;box-shadow:none;background:none;padding:5px 12px;font-size:12px;-webkit-backdrop-filter:none;backdrop-filter:none}
+.seg button.on{background:linear-gradient(180deg,rgba(255,255,255,.55),rgba(255,255,255,.18));box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 2px 8px -1px var(--gl-shadow)}
+.sw{position:relative;width:42px;height:25px;border-radius:999px;background:var(--well);box-shadow:inset 0 1px 3px rgba(0,0,0,.15);cursor:pointer;flex:none;transition:background .2s}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:21px;height:21px;border-radius:50%;background:linear-gradient(180deg,#fff,#f0f0f3);box-shadow:0 1px 4px rgba(0,0,0,.3),inset 0 1px 0 #fff;transition:transform .2s}
+.sw.on{background:var(--ok)}.sw.on::after{transform:translateX(17px)}
+input[type=number],input.short{width:104px;text-align:right;padding:6px 10px}
+.web{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;padding:12px 0}
+.web button{text-align:left;border-radius:16px;padding:10px 12px;display:flex;gap:10px;align-items:center}
+.web button i{font-style:normal;font-size:16px;width:22px;text-align:center;flex:none}
+.web button b{display:block;font-weight:600;font-size:12.5px}.web button small{display:block;color:var(--mute);font-size:10.5px;line-height:1.3}
+.lv{display:flex;gap:8px;flex:none}.lv label{display:flex;align-items:center;gap:4px}.lv i{width:9px;height:9px;border-radius:50%;flex:none}
+.lv input{width:52px;text-align:center;padding:6px 4px}
+.note{font-size:11px;margin:2px 4px 0}
+</style></head><body><main>
+<header><h1>Claude Duo</h1><nav class="tabs"><a href="/">Usage</a><a href="/sessions" data-sessions>Sessions</a></nav><span id="saved">Saved</span><a class="gear on" href="/settings" title="Settings" aria-label="Settings">⚙</a></header>
+<div class="cols">
+<section>
+  <h3>Menu bar</h3>
+  <div class="glass card">
+    <div class="row"><div>Shows<div class="d">Which limit the top bar percentage tracks</div></div>
+      <div class="seg" id="display"><button data-v="session">Session</button><button data-v="weekly">Weekly</button><button data-v="both">Both</button></div></div>
+    <div class="row"><div>Plan % updates every<div class="d">How often to ask Anthropic for your plan percentage (30–3600 s). Too often gets rate-limited.</div></div><input type="number" id="plan_secs" min="30" max="3600"></div>
+    <div class="row"><div>Colours at<div class="d">Percent used where the menu bar and bars turn yellow and red. Below yellow is green.</div></div>
+      <div class="lv"><label><i style="background:var(--yel)"></i><input type="number" id="yellow_at" min="1" max="100"></label><label><i style="background:var(--bad)"></i><input type="number" id="red_at" min="1" max="100"></label></div></div>
+    <div class="row"><div>Show ✦ icon</div><div class="sw" id="show_icon"></div></div>
+    <div class="row"><div>Show ● while Claude is working<div class="d">A dot after the percentage when any session is busy</div></div><div class="sw" id="show_busy"></div></div>
+    <div class="row"><div>Refresh every<div class="d">How often the popup, window and menu bar update (10–600 s)</div></div><input type="number" id="refresh_secs" min="10" max="600"></div>
+  </div>
+  <h3>Notifications</h3>
+  <div class="glass card">
+    <div class="row"><div>Notify me near my limit</div><div class="sw" id="notify"></div></div>
+    <div class="row"><div>Notify when Claude finishes<div class="d">A banner when a session goes from working to waiting for you</div></div><div class="sw" id="notify_done"></div></div>
+    <div class="row"><div>Alert at<div class="d">Percent used, comma separated</div></div><input type="text" class="short" id="notify_at"></div>
+  </div>
+  <h3>Token budgets</h3>
+  <div class="glass card">
+    <div class="row"><div>5-hour session<div class="d">Used for the local token bars</div></div><input type="number" id="limit_5h" min="1"></div>
+    <div class="row"><div>Weekly</div><input type="number" id="limit_week" min="1"></div>
+  </div>
+  <h3>General</h3>
+  <div class="glass card">
+    <div class="row"><div>Launch at login<div class="d">Also rebuilds your session grid after a restart</div></div><div class="sw" id="login"></div></div>
+    <div class="row"><div>Menu bar icon<div class="d">If it's missing, allow Claude Duo in the menu bar</div></div><button onclick="act('menubar_settings')" style="padding:6px 12px;font-size:12px">Open Menu Bar Settings</button></div>
+  </div>
+</section>
+<section>
+  <h3>Claude on the web</h3>
+  <div class="glass card"><div class="web" id="chat"></div></div>
+  <h3>Your claude.ai settings</h3>
+  <div class="glass card"><div class="web" id="account"></div></div>
+  <h3>Plan &amp; billing</h3>
+  <div class="glass card"><div class="web" id="plan"></div></div>
+  <h3>Help &amp; more</h3>
+  <div class="glass card"><div class="web" id="help"></div></div>
+  <p class="mute note">These open claude.ai in your browser, signed in as you.</p>
+</section>
+</div>
+</main>
+<script src="/ui.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const WEB={
+  chat:[['web_new','✎','New chat','Start a conversation'],['web_recents','☰','Chats','Your past conversations'],
+        ['web_projects','▦','Projects','Files and instructions per project'],['web_artifacts','◇','Artifacts','Things Claude made for you'],
+        ['web_code','❯_','Claude Code','Coding sessions on the web']],
+  account:[['web_profile','☺','Profile','Name and what Claude knows about you'],['web_appearance','◐','Appearance','Theme, font and chat style'],
+           ['web_capabilities','✦','Capabilities','Memory, artifacts, search and tools'],['web_connectors','⇄','Connectors','Gmail, Drive, Calendar and more'],
+           ['web_privacy','⛨','Privacy','Data and training controls'],['web_account','⚙','Account','Email, sign-in and devices']],
+  plan:[['web_usage','◔','Usage','Your limits on claude.ai'],['credits','＋','Add credits','Buy extra usage'],
+        ['upgrade','↑','Upgrade','Change your plan'],['web_billing','▭','Billing','Invoices and payment'],
+        ['api_credits','⌁','API credits','Developer platform billing']],
+  help:[['web_download','⤓','Download','Desktop and mobile apps'],['web_help','?','Help center','Guides and support'],
+        ['web_status','●','Status','Is Claude up right now?'],['web_docs','▤','Docs','Claude and Claude Code docs'],
+        ['web_console','⌘','Console','Developer platform']]};
+for(const [box,items] of Object.entries(WEB))
+  $(box).innerHTML=items.map(([k,i,t,d])=>`<button onclick="act('${k}')"><i>${i}</i><span><b>${t}</b><small>${d}</small></span></button>`).join('');
+
+let t;
+async function save(patch){
+  const r=await fetch('/api/settings',{method:'POST',body:JSON.stringify(patch)}).then(r=>r.json());
+  const s=$('saved');s.classList.add('on');clearTimeout(t);t=setTimeout(()=>s.classList.remove('on'),1200);
+  show(r);
+}
+function show(c){
+  document.querySelectorAll('#display button').forEach(b=>b.classList.toggle('on',b.dataset.v===c.display));
+  for(const k of ['show_icon','show_busy','notify','notify_done','login'])$(k).classList.toggle('on',!!c[k]);
+  for(const k of ['refresh_secs','plan_secs','limit_5h','limit_week','yellow_at','red_at'])if(document.activeElement!==$(k))$(k).value=c[k];
+  if(document.activeElement!==$('notify_at'))$('notify_at').value=(c.notify_at||[]).join(', ');
+}
+document.querySelectorAll('#display button').forEach(b=>b.onclick=()=>save({display:b.dataset.v}));
+for(const k of ['show_icon','show_busy','notify','notify_done','login'])$(k).onclick=()=>save({[k]:!$(k).classList.contains('on')});
+for(const k of ['refresh_secs','plan_secs','limit_5h','limit_week','yellow_at','red_at'])$(k).onchange=()=>save({[k]:+$(k).value});
+$('notify_at').onchange=()=>save({notify_at:$('notify_at').value.split(/[ ,]+/).filter(Boolean).map(Number).filter(n=>!isNaN(n))});
+fetch('/api/settings').then(r=>r.json()).then(show);
+</script></body></html>

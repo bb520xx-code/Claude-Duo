@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Claude Duo</title>
+<link rel="stylesheet" href="/glass.css">
+<style>
+main{padding:36px 16px 16px;font-size:12px}
+header{display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+h1{font-size:18px;font-weight:600;margin:0 10px 0 0;letter-spacing:-.01em}
+button.sm{padding:6px 12px;font-size:12px}button.main{font-weight:600}
+.banner{display:none;align-items:center;gap:10px;padding:9px 12px;border-radius:14px;margin-bottom:12px;background:rgba(240,160,32,.16);border:1px solid rgba(240,160,32,.45)}
+.banner span{flex:1}
+.card{padding:12px 14px;border-radius:18px;margin-bottom:12px}.card h2{margin:0 0 10px;display:flex;justify-content:space-between;gap:8px}
+.list{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px}
+.s{display:flex;align-items:center;gap:9px;padding:9px 9px 9px 12px;border-radius:14px;background:var(--track)}
+.s .t{flex:1;min-width:0}.s b{display:block;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.s small{display:block;color:var(--mute);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.s button{padding:4px 9px;font-size:11px;white-space:nowrap}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 6px var(--ok);flex:none}
+.dot.busy{background:var(--accent);box-shadow:0 0 8px var(--accent);animation:p 1.2s ease-in-out infinite}.dot.sh{background:var(--mute);box-shadow:none}
+@keyframes p{50%{opacity:.35}}
+.seg{display:inline-flex;padding:3px;border-radius:999px;background:var(--track);margin-bottom:12px}
+.seg button{border:0;background:none;box-shadow:none;padding:6px 14px;font-size:12px;color:var(--mute)}
+.seg button.on{background:linear-gradient(150deg,var(--gl-a),var(--gl-b));color:var(--ink);box-shadow:inset 0 1px 0 rgba(255,255,255,.5),0 1px 4px var(--gl-shadow)}
+.chips{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px;margin-bottom:12px}
+.chip{text-align:left;border-radius:14px;padding:9px 12px}.chip b{display:block;font-weight:600}
+.chip small{color:var(--mute);font-size:11px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.row input[type=text]{flex:1;min-width:200px}
+label.ck{display:flex;align-items:center;gap:8px;margin-top:12px;color:var(--mute)}label.ck input{width:auto}
+.msg{margin-top:10px;min-height:16px}.msg.err{color:var(--bad)}
+.tip{font-size:11px;margin:10px 0 0}
+#modal{position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.25);z-index:9}
+#modal .box{padding:18px 20px;border-radius:20px;width:340px}#modal p{margin:0 0 14px;line-height:1.45}#modal .row{justify-content:flex-end}
+</style></head><body><main>
+<header><h1>Claude Duo</h1><nav class="tabs" style="margin-right:auto"><a href="/">Usage</a><a class="on" href="/sessions" data-sessions>Sessions</a></nav>
+  <button class="sm" id="gatherBtn" onclick="gatherAll()">⇲ Move all into grid</button>
+  <button class="sm main" onclick="openGrid()">⊞ Open grid</button>
+  <button class="sm q" title="Quit Claude Duo (your grid and Claude sessions keep running)" onclick="act('quit')">⏻ Quit</button><a class="gear" href="/settings" title="Settings" aria-label="Settings">⚙</a></header>
+<div class="banner" id="banner"><span>macOS is hiding the Claude Duo icon in your menu bar. Turn on <b>Claude Duo</b> under <b>Allow in the Menu Bar</b>.</span><button class="sm" onclick="act('menubar_settings')">Open Menu Bar Settings</button></div>
+<div class="glass card"><h2 class="cap"><span>Grid · one Terminal window</span><span id="gcount"></span></h2><div class="list" id="grid"></div>
+  <p class="mute tip">In the grid: click a pane to type in it · drag the lines between panes to resize · right-click a pane to swap, zoom, split or close it.</p></div>
+<div class="glass card" id="elsewhere"><h2 class="cap"><span>Running in other Terminal windows</span><span id="ecount"></span></h2><div class="list" id="list"></div></div>
+<div class="glass card"><h2 class="cap">Add a pane</h2>
+  <div class="seg"><button id="k-claude" class="on" onclick="kind('claude')">✦ Claude Code</button><button id="k-shell" onclick="kind('shell')">❯_ Terminal</button></div>
+  <div class="chips" id="recent"></div>
+  <div class="row"><input type="text" id="path" placeholder="~/path/to/folder" onkeydown="if(event.key==='Enter')startPath()"><button class="sm" onclick="startPath()">Open</button><button class="sm" onclick="choose()">Choose folder…</button></div>
+  <label class="ck" id="contRow"><input type="checkbox" id="cont"> Continue the last conversation in that folder</label>
+  <div class="msg" id="msg"></div>
+</div>
+<div id="modal"><div class="box glass"><p id="mtext"></p><div class="row"><button class="sm" id="mno" onclick="closeModal(false)">Cancel</button><button class="sm q" id="mok" onclick="closeModal(true)">Stop</button></div></div></div>
+</main>
+<script src="/ui.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const H={'X-Claude-Usage':'1'};
+const api=(p,d)=>fetch(p,d===undefined?{headers:H}:{method:'POST',headers:H,body:JSON.stringify(d)}).then(r=>r.json());
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let home='',K='claude',outside=[];
+const short=p=>home&&p.startsWith(home)?'~'+p.slice(home.length):p;
+const ago=e=>{const m=e.match(/^(?:(\d+)-)?(?:(\d+):)?(\d+):\d+$/);if(!m)return e;const d=+(m[1]||0),h=+(m[2]||0),mi=+m[3];return d?d+'d '+h+'h':h?h+'h '+mi+'m':mi+'m'};
+const J=v=>esc(JSON.stringify(v));
+
+function ask(text,ok,cancel=true){$('mtext').textContent=text;$('mok').textContent=ok;$('mno').style.display=cancel?'':'none';$('modal').style.display='grid';return new Promise(r=>window._m=r)}
+function closeModal(v){$('modal').style.display='none';window._m&&window._m(v)}
+function say(t,err){$('msg').textContent=t;$('msg').className='msg'+(err?' err':'')}
+function kind(k){K=k;$('k-claude').classList.toggle('on',k==='claude');$('k-shell').classList.toggle('on',k==='shell');$('contRow').style.display=k==='claude'?'flex':'none'}
+async function post(p,d){const r=await api(p,d||{});if(r.error)ask(r.error,'OK',false);setTimeout(refresh,700);return r}
+
+async function refresh(){
+  let s;try{s=await api('/api/terms')}catch(e){return}
+  home=s.home;
+  const byTty={};for(const r of s.running)byTty[r.tty]=r;
+  outside=s.running.filter(r=>!r.pane);
+  $('gcount').textContent=s.grid.length?s.grid.length+' pane'+(s.grid.length>1?'s':''):'';
+  $('grid').innerHTML=s.grid.map(p=>{const c=byTty[p.tty],cl=!!c;
+    return `<div class="s"><span class="dot${cl?(c.status==='busy'?' busy':''):' sh'}"></span><div class="t" title="${esc(p.cwd)}"><b>${esc(p.name)}</b><small>${cl?'Claude'+(c.status?' · '+esc(c.status==='busy'?'working':'waiting for you'):''):esc(p.command)} · ${esc(short(p.cwd))}</small></div><button onclick="post('/api/term/pane/${p.pane.slice(1)}/focus')">Focus</button><button class="q" onclick='closePane(${J(p.pane)},${J(p.name)},${cl})'>Close</button></div>`}).join('')
+    ||'<span class="mute">The grid is empty. Add a pane below, or move your running sessions in.</span>';
+  $('elsewhere').style.display=outside.length?'':'none';
+  $('gatherBtn').style.display=outside.length>1?'':'none';
+  $('ecount').textContent=outside.length?outside.length+' running':'';
+  $('list').innerHTML=outside.map(e=>`<div class="s"><span class="dot${e.status==='busy'?' busy':''}"></span><div class="t" title="${esc(e.cwd)}"><b>${esc(e.name)}</b><small>${esc(e.status==='busy'?'working':e.status==='idle'?'waiting for you':'running')} · ${esc(ago(e.elapsed))}</small></div><button title="Stop it here and continue the same conversation in a grid pane" onclick='move(${e.pid},${J(e.name)},${J(e.status)})'>⇲ Grid</button><button onclick="post('/api/term/${e.pid}/focus')">Focus</button><button class="q" onclick='stopS(${e.pid},${J(e.name)})'>Stop</button></div>`).join('');
+  $('recent').innerHTML=(s.tmux?'':'<span class="msg err">tmux isn’t installed. Install it with <code>brew install tmux</code>.</span>')+(s.claude||K==='shell'?s.recent.map(p=>`<button class="chip" title="${esc(p)}" onclick='start(${J(p)})'><b>${esc(p.split('/').pop()||p)}</b><small>${esc(short(p))}</small></button>`).join(''):'<span class="msg err">Claude Code isn’t installed: no <code>claude</code> command was found.</span>');
+}
+async function start(cwd){
+  say(K==='shell'?'Opening a terminal pane…':'Starting Claude…');
+  const r=await api('/api/term/new',{cwd,continue:$('cont').checked,kind:K});
+  if(r.error)return say(r.error,true);
+  say('Added to the grid.');setTimeout(refresh,800);
+}
+function startPath(){start($('path').value.trim()||'~')}
+function choose(){api('/api/term/choose',{continue:$('cont').checked,kind:K});setTimeout(refresh,4000)}
+function openGrid(){post('/api/term/grid')}
+async function closePane(pane,name,claude){if(await ask(claude?`Close the pane in “${name}”? Its Claude session will end.`:`Close the terminal pane in “${name}”?`,'Close'))post(`/api/term/pane/${pane.slice(1)}/close`)}
+async function move(pid,name,status){
+  const warn=status==='busy'?' Claude is working on something right now; that will be interrupted.':'';
+  if(await ask(`Move “${name}” into the grid? It stops in its current window and the same conversation continues in a new pane.${warn}`,'Move'))post(`/api/term/${pid}/move`)
+}
+async function gatherAll(){
+  if(!await ask(`Move all ${outside.length} sessions (${outside.map(o=>o.name).join(', ')}) into the grid? Each stops in its current window and continues in a pane.`+(outside.some(o=>o.status==='busy')?' Some are working right now and will be interrupted.':''),'Move all'))return;
+  const r=await post('/api/term/gather');
+}
+async function stopS(pid,name){if(await ask(`Stop the Claude session in “${name}”? That conversation will end.`,'Stop'))post(`/api/term/${pid}/stop`)}
+async function status(){try{const s=await (await fetch('/api/status')).json();$('banner').style.display=s.menubar_hidden?'flex':'none'}catch(e){}}
+kind('claude');refresh();status();setInterval(refresh,3000);setInterval(status,10000);
+</script></body></html>

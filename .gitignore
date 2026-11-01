@@ -1,0 +1,12 @@
+# your own data — never commit
+config.json
+plan_cache.json
+grid.json
+grid_screens/
+status.log
+# build output
+.venv/
+__pycache__/
+launcher/Claude Duo
+*.app/
+.DS_Store

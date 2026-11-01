@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Claude Duo</title>
+<link rel="stylesheet" href="/glass.css">
+<style>
+html{overflow-y:auto}body{min-height:0}::-webkit-scrollbar{display:none}
+body{padding:10px 10px 8px;font-size:11px}
+.top{display:flex;align-items:center;gap:6px;margin-bottom:8px}
+.top .tabs{flex:1;display:flex}.top .tabs a{flex:1;text-align:center;padding:5px 0;cursor:pointer}
+.top .gear{width:28px;height:28px;margin-left:0;font-size:14px;cursor:pointer}
+.view{display:none}.view.on{display:block}
+.big{text-align:center}.big .n{font-size:38px;font-weight:300;line-height:1;letter-spacing:-.03em}.big .n small{font-size:24px;color:var(--mute);font-weight:400;margin-left:3px}
+.big .s{color:var(--mute);margin-top:4px}
+h3{margin:7px 4px 4px;font-size:11px;font-weight:700;color:var(--mute);display:flex;justify-content:space-between}
+.card{padding:6px;border-radius:16px}
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tile{border-radius:14px;padding:6px 8px;background:var(--track)}
+.tile .l{color:var(--mute);font-size:10px;margin-bottom:4px}
+.flow{display:flex;align-items:center;gap:6px}.flow .tile{flex:1}.flow .a{color:var(--mute);font-size:16px}
+.tile b{display:block;font-size:14px;font-weight:600}.tile .m{color:var(--mute);font-size:11px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);margin-top:6px;text-align:center}
+.stats>div+div{border-left:1px solid var(--track)}.stats b{display:block;font-size:12px}.stats span{color:var(--mute);font-size:11px}
+/* sessions: only the grid's panes */
+.pane{display:flex;align-items:center;gap:7px;padding:7px 6px 7px 8px;border-radius:12px;background:var(--track)}.pane+.pane{margin-top:5px}
+.pane .t{flex:1;min-width:0}.pane b{display:block;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pane small{display:block;color:var(--mute);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pane button{width:24px;height:24px;padding:0;font-size:11px;display:grid;place-items:center;flex:none}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 6px var(--ok);flex:none}
+.dot.busy{background:var(--accent);box-shadow:0 0 8px var(--accent);animation:p 1.2s ease-in-out infinite}.dot.sh{background:var(--mute);box-shadow:none}
+@keyframes p{50%{opacity:.35}}
+.wide{width:100%;padding:8px;font-size:12px;font-weight:600;margin-top:8px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px}.two button{padding:7px 4px;font-size:11px}
+.empty{color:var(--mute);text-align:center;padding:14px 6px}
+.add{padding:8px}.kinds{margin-bottom:7px}.kinds button{flex:1;padding:5px 4px}
+.chip{display:block;width:100%;text-align:left;padding:6px 10px;border-radius:12px;font-size:11px;margin-bottom:5px}
+.chip b{font-weight:600}.chip small{color:var(--mute);margin-left:5px}
+.pathrow{display:flex;gap:5px;margin-top:2px}.pathrow input{padding:6px 9px;font-size:11px;border-radius:12px}.pathrow button{padding:5px 10px;font-size:11px}
+.choose{width:100%;margin-top:6px;padding:6px;font-size:11px}
+label.ck{display:flex;align-items:center;gap:6px;margin-top:7px;color:var(--mute);font-size:11px}label.ck input{width:auto;margin:0}
+/* settings */
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 2px}.row+.row{border-top:1px solid var(--track)}
+.lv{display:flex;gap:5px}.lv label{display:flex;align-items:center;gap:3px}.lv i{width:8px;height:8px;border-radius:50%;flex:none}
+.lv input{width:38px;padding:3px 4px;font-size:11px;text-align:center;border-radius:9px;-moz-appearance:textfield}.lv input::-webkit-inner-spin-button{display:none}
+.seg{display:flex;background:var(--well);border-radius:999px;padding:2px;box-shadow:inset 0 1px 3px rgba(0,0,0,.12)}
+.seg button{border:0;box-shadow:none;background:none;padding:4px 7px;font-size:10.5px;-webkit-backdrop-filter:none;backdrop-filter:none}
+.seg button.on{background:linear-gradient(180deg,rgba(255,255,255,.55),rgba(255,255,255,.18));box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 2px 6px -1px var(--gl-shadow)}
+.sw{position:relative;width:36px;height:21px;border-radius:999px;background:var(--well);box-shadow:inset 0 1px 3px rgba(0,0,0,.15);cursor:pointer;flex:none;transition:background .2s}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:17px;height:17px;border-radius:50%;background:linear-gradient(180deg,#fff,#f0f0f3);box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .2s}
+.sw.on{background:var(--ok)}.sw.on::after{transform:translateX(15px)}
+.links{display:grid;grid-template-columns:1fr 1fr;gap:6px}.links button{padding:7px 6px;font-size:11px;text-align:left}
+#saved{color:var(--ok);opacity:0;transition:opacity .3s;font-weight:500}#saved.on{opacity:1}
+.foot{display:flex;justify-content:space-between;margin-top:8px}.foot div{display:flex;gap:5px}
+.foot button.pill{width:auto;padding:0 12px;border-radius:999px;font-size:11px;font-weight:600}
+.foot button{width:28px;height:28px;padding:0;font-size:13px;display:grid;place-items:center}
+.flash{animation:f .35s}@keyframes f{50%{transform:scale(.9);opacity:.6}}
+</style></head><body>
+<div class="top"><nav class="tabs"><a id="t-usage" class="on" title="1" onclick="view('usage')">Usage</a><a id="t-sessions" data-sessions title="2" onclick="view('sessions')">Sessions</a></nav>
+  <a class="gear" id="t-settings" title="Settings (,)" onclick="view('settings')">⚙</a></div>
+
+<div class="view on" id="v-usage">
+  <div class="big"><div class="n" id="n">–<small>%</small></div><div class="s" id="s">Connecting…</div><div class="s" id="pace" style="margin-top:2px;font-size:11px"></div></div>
+  <h3>Limits</h3>
+  <div class="glass card"><div class="tiles" id="lims"></div></div>
+  <h3>Busiest hours</h3>
+  <div class="glass card"><div style="padding:2px 4px" id="hrs"></div></div>
+  <h3>Tokens · last 14 days</h3>
+  <div class="glass card"><div id="sp" style="padding:4px 2px 0"></div><div class="stats" id="st"></div></div>
+</div>
+
+<div class="view" id="v-sessions">
+  <h3><span>Grid</span><span id="gcount"></span></h3>
+  <div class="glass card"><div id="grid"></div></div>
+  <button class="wide" onclick="term('/api/term/grid')">⊞ Show grid</button>
+  <div class="s mute" id="smsg" style="text-align:center;margin-top:6px;min-height:14px"></div>
+  <h3>Add a pane</h3>
+  <div class="glass card add">
+    <div class="seg kinds"><button id="k-claude" class="on" onclick="kind('claude')">✦ Claude Code</button><button id="k-shell" onclick="kind('shell')">❯_ Terminal</button></div>
+    <div id="recent"></div>
+    <div class="pathrow"><input type="text" id="path" placeholder="~/folder" onkeydown="if(event.key==='Enter')startPath()"><button onclick="startPath()">Open</button></div>
+    <button class="choose" onclick="choose()">Choose folder…</button>
+    <label class="ck" id="contRow"><input type="checkbox" id="cont"> Continue last conversation</label>
+  </div>
+  <div id="outside" style="display:none">
+    <h3><span>Other Terminal windows</span><span id="ocount"></span></h3>
+    <div class="glass card"><div id="others"></div></div>
+    <button class="wide" id="gatherBtn" onclick="confirm2(this,'Move all into the grid?',()=>term('/api/term/gather'))">⇲ Move all into grid</button>
+  </div>
+</div>
+
+<div class="view" id="v-settings">
+  <h3><span>Settings</span><span id="saved">Saved</span></h3>
+  <div class="glass card" style="padding:2px 8px">
+    <div class="row"><span>Menu bar shows</span><div class="seg" id="display"><button data-v="session">Session</button><button data-v="weekly">Week</button><button data-v="both">Both</button></div></div>
+    <div class="row"><span>Refreshes every</span><div class="seg" id="refresh_secs"><button data-v="10">10s</button><button data-v="30">30s</button><button data-v="60">1m</button><button data-v="300">5m</button></div></div>
+    <div class="row"><span>Plan % updates</span><div class="seg" id="plan_secs"><button data-v="30">30s</button><button data-v="60">1m</button><button data-v="120">2m</button><button data-v="300">5m</button></div></div>
+    <div class="row"><span>Colours at</span><div class="lv"><label><i style="background:var(--yel)"></i><input type="number" id="yellow_at" min="1" max="100"></label><label><i style="background:var(--bad)"></i><input type="number" id="red_at" min="1" max="100"></label></div></div>
+    <div class="row"><span>Show ✦ icon</span><div class="sw" id="show_icon"></div></div>
+    <div class="row"><span>● while Claude works</span><div class="sw" id="show_busy"></div></div>
+    <div class="row"><span>Notify near limit</span><div class="sw" id="notify"></div></div>
+    <div class="row"><span>Notify when Claude finishes</span><div class="sw" id="notify_done"></div></div>
+    <div class="row"><span>Launch at login</span><div class="sw" id="login"></div></div>
+  </div>
+  <h3>Claude on the web</h3>
+  <div class="glass card"><div class="links">
+    <button onclick="act('web_new')">✎ New chat</button><button onclick="act('web_recents')">☰ Chats</button>
+    <button onclick="act('web_projects')">▦ Projects</button><button onclick="act('web_usage')">◔ Usage</button>
+    <button onclick="act('upgrade')">↑ Upgrade</button><button onclick="act('web_capabilities')">✦ Capabilities</button>
+  </div></div>
+</div>
+
+<div class="foot"><button class="q" title="Quit Claude Duo" onclick="act('quit')">⏻</button><div><button class="pill" title="Buy extra usage on claude.ai" onclick="act('credits')">＋ Credits</button><button title="Refresh" id="rf" onclick="refresh()">↻</button></div></div>
+<script src="/ui.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const H={'X-Claude-Usage':'1'};
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let cur='usage';
+try{cur=localStorage.getItem('popTab')||'usage'}catch(e){}
+function view(v){  // tabs switch inside the popup; nothing opens the app window
+  cur=v;try{localStorage.setItem('popTab',v)}catch(e){}
+  for(const k of ['usage','sessions','settings'])$('v-'+k).classList.toggle('on',k===v);
+  $('t-usage').classList.toggle('on',v==='usage');$('t-sessions').classList.toggle('on',v==='sessions');$('t-settings').classList.toggle('on',v==='settings');
+  refresh();
+}
+
+async function usage(){
+  const [p,s]=await Promise.all([fetch('/api/plan').then(r=>r.json()),fetch('/api/summary').then(r=>r.json())]);
+  const L=p.limits||[], f=L.find(l=>l.key==='five_hour');
+  const pct=f?f.percent:s.block.counted/s.limits.limit_5h*100;
+  $('n').innerHTML=pct.toFixed(0)+'<small>%</small>';
+  $('s').textContent=(p.plan?p.plan.toUpperCase()+' plan · ':'')+(f?'session resets '+rs(f.resets_at):'local estimate')+(p.stale?' · cached':'');
+  const pc=f&&f.pace; const pe=$('pace'); pe.textContent=pc?(pc>=100?'⚠︎ on pace to hit the limit before reset':'On pace for ~'+pc.toFixed(0)+'% by reset'):''; pe.style.color=pc>=100?'var(--bad)':'';
+  const tiles=L.length?L:[{label:'Session (local)',percent:pct}];
+  const colors=['var(--ok)','#f0a020','#3aa0e0','#c070e0'];
+  $('lims').innerHTML=tiles.map((l,i)=>`<div class="tile"><div class="l">${l.label.replace(' (all models)','').replace('5-hour session','Session')}: ${l.percent.toFixed(0)}%</div>${seg(l.percent,12,colors[i%4],22)}${l.resets_at?`<div class="m" style="font-size:9.5px;margin-top:3px">resets ${rs(l.resets_at)}</div>`:''}</div>`).join('');
+  $('hrs').innerHTML=hourChart(s.hourly,28);
+  const d=s.daily.map(x=>x.tokens);
+  $('sp').innerHTML=spark(d,240,32,'#3aa0e0');
+  $('st').innerHTML=[['5 hours',s.block.counted],['7 days',s.week.counted],['Today',d[d.length-1]],['All time',s.all.counted]]
+    .map(([n,v])=>`<div><span>${n}</span><b>${fmt(v)}</b></div>`).join('');
+}
+
+async function term(path,body){
+  const r=await fetch(path,{method:'POST',headers:H,body:JSON.stringify(body||{})}).then(r=>r.json()).catch(()=>({error:'Claude Duo isn’t responding'}));
+  $('smsg').textContent=r.error||'';$('smsg').style.color=r.error?'var(--bad)':'';
+  setTimeout(sessions,600);return r;
+}
+let K='claude';
+function kind(k){K=k;$('k-claude').classList.toggle('on',k==='claude');$('k-shell').classList.toggle('on',k==='shell');$('contRow').style.display=k==='claude'?'flex':'none'}
+function start(cwd){$('smsg').style.color='';$('smsg').textContent=K==='shell'?'Opening a terminal…':'Starting Claude…';term('/api/term/new',{cwd,kind:K,continue:$('cont').checked})}
+function startPath(){start($('path').value.trim()||'~')}
+function choose(){term('/api/term/choose',{kind:K,continue:$('cont').checked})}  // the folder picker opens in front
+function confirm2(btn,question,run){  // two clicks (the button turns into ✓), so nothing ends by accident
+  if(btn.dataset.sure){run();return}
+  const was=btn.textContent;btn.dataset.sure=1;btn.textContent=btn.classList.contains('wide')?'✓ '+question:'✓';
+  $('smsg').style.color='';$('smsg').textContent=question+' Click ✓ to confirm.';
+  setTimeout(()=>{btn.textContent=was;delete btn.dataset.sure},3000);
+}
+function closePane(btn,pane,name){confirm2(btn,'Close “'+name+'”?',()=>term(`/api/term/pane/${pane.slice(1)}/close`))}
+const ago=e=>{const m=e.match(/^(?:(\d+)-)?(?:(\d+):)?(\d+):\d+$/);if(!m)return e;const d=+(m[1]||0),h=+(m[2]||0),mi=+m[3];return d?d+'d '+h+'h':h?h+'h '+mi+'m':mi+'m'};
+async function sessions(){
+  const s=await fetch('/api/terms',{headers:H}).then(r=>r.json());
+  const byTty={};for(const r of s.running)byTty[r.tty]=r;
+  sessionBadge();
+  $('gcount').textContent=s.grid.length?s.grid.length+' pane'+(s.grid.length>1?'s':''):'';
+  $('grid').innerHTML=s.grid.map(p=>{const c=byTty[p.tty];
+    return `<div class="pane"><span class="dot${c?(c.status==='busy'?' busy':''):' sh'}"></span><div class="t" title="${esc(p.cwd)}"><b>${esc(p.name)}</b><small>${c?(c.status==='busy'?'Claude · working':'Claude · waiting for you'):'Terminal'}</small></div><button title="Show this pane" onclick="term('/api/term/pane/${p.pane.slice(1)}/focus')">↗</button><button class="q" title="Close" onclick='closePane(this,${esc(JSON.stringify(p.pane))},${esc(JSON.stringify(p.name))})'>×</button></div>`}).join('')
+    ||'<div class="empty">The grid is empty.<br>Add a Claude or Terminal pane below.</div>';
+  const out=s.running.filter(r=>!r.pane), J=v=>esc(JSON.stringify(v));
+  const short=p=>p.startsWith(s.home)?'~'+p.slice(s.home.length):p;
+  $('recent').innerHTML=(s.tmux?'':'<div class="empty" style="color:var(--bad)">tmux isn’t installed (brew install tmux)</div>')
+    +s.recent.slice(0,5).map(p=>`<button class="chip" title="${esc(p)}" onclick='start(${J(p)})'><b>${esc(p.split('/').pop()||p)}</b><small>${esc(short(p))}</small></button>`).join('');
+  $('outside').style.display=out.length?'':'none';
+  $('gatherBtn').style.display=out.length>1?'':'none';
+  $('ocount').textContent=out.length?out.length+' running':'';
+  $('others').innerHTML=out.map(e=>`<div class="pane"><span class="dot${e.status==='busy'?' busy':''}"></span><div class="t" title="${esc(e.cwd)}"><b>${esc(e.name)}</b><small>${e.status==='busy'?'working':e.status==='idle'?'waiting for you':'running'} · ${esc(ago(e.elapsed))}</small></div><button title="Move into the grid (same conversation continues there)" onclick='confirm2(this,${J('Move “'+e.name+'” into the grid?')},()=>term("/api/term/${e.pid}/move"))'>⇲</button><button title="Show its Terminal window" onclick="term('/api/term/${e.pid}/focus')">↗</button><button class="q" title="Stop" onclick='confirm2(this,${J('Stop “'+e.name+'”?')},()=>term("/api/term/${e.pid}/stop"))'>■</button></div>`).join('');
+}
+
+let t;
+async function save(patch){
+  const r=await fetch('/api/settings',{method:'POST',body:JSON.stringify(patch)}).then(r=>r.json());
+  $('saved').classList.add('on');clearTimeout(t);t=setTimeout(()=>$('saved').classList.remove('on'),1200);
+  showSettings(r);
+}
+function showSettings(c){
+  document.querySelectorAll('#display button').forEach(b=>b.classList.toggle('on',b.dataset.v===c.display));
+  document.querySelectorAll('#plan_secs button').forEach(b=>b.classList.toggle('on',+b.dataset.v===c.plan_secs));
+  document.querySelectorAll('#refresh_secs button').forEach(b=>b.classList.toggle('on',+b.dataset.v===c.refresh_secs));
+  every(c.refresh_secs);
+  for(const k of ['show_icon','show_busy','notify','notify_done','login'])$(k).classList.toggle('on',!!c[k]);
+  for(const k of ['yellow_at','red_at']){LV[k]=c[k];if(document.activeElement!==$(k))$(k).value=c[k]}
+}
+for(const k of ['yellow_at','red_at'])$(k).onchange=()=>save({[k]:+$(k).value});
+document.querySelectorAll('#display button').forEach(b=>b.onclick=()=>save({display:b.dataset.v}));
+document.querySelectorAll('#plan_secs button').forEach(b=>b.onclick=()=>save({plan_secs:+b.dataset.v}));
+document.querySelectorAll('#refresh_secs button').forEach(b=>b.onclick=()=>save({refresh_secs:+b.dataset.v}));
+for(const k of ['show_icon','show_busy','notify','notify_done','login'])$(k).onclick=()=>save({[k]:!$(k).classList.contains('on')});
+async function settings(){showSettings(await fetch('/api/settings').then(r=>r.json()))}
+
+function fit(){  // tell the app how tall this tab is, so the popup fits it without scrolling
+  setTimeout(()=>{try{webkit.messageHandlers.size.postMessage(Math.ceil(document.body.scrollHeight))}catch(e){}},30);
+}
+function refresh(){
+  const b=$('rf');b.classList.remove('flash');void b.offsetWidth;b.classList.add('flash');
+  return ({usage,sessions,settings})[cur]().catch(()=>{}).then(fit);
+}
+addEventListener('keydown',e=>{  // 1 Usage · 2 Sessions · , Settings · R refresh
+  if(e.target.tagName==='INPUT'||e.metaKey||e.ctrlKey)return;
+  const k={'1':'usage','2':'sessions',',':'settings'}[e.key];
+  if(k)view(k);else if(e.key==='r')refresh();
+});
+let timer,secs=0;
+function every(s){  // refresh on the interval chosen in Settings
+  s=Math.max(10,+s||10);if(s===secs)return;secs=s;clearInterval(timer);
+  timer=setInterval(()=>{if(!document.hidden)refresh()},s*1000);
+}
+view(cur);settings().catch(()=>every(10));
+</script></body></html>
