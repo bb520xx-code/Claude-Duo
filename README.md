@@ -52,7 +52,3 @@ It is kept in memory only.
 cd ~/ClaudeUsage
 PYTHONPATH=.:.venv/lib/python3.14/site-packages /opt/homebrew/bin/python3.14 -m unittest discover -s tests
 ```
-
-## License
-
-MIT
