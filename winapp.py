@@ -105,10 +105,10 @@ class App:
         return False  # cancel the close
 
     def show(self, win, path=None):
+        win.show()  # first: a window that was never shown can't load a page yet
+        win.restore()
         if path:
             win.load_url(self.base + path)
-        win.show()
-        win.restore()
 
     def quit(self):
         self.icon.stop()
@@ -195,8 +195,7 @@ class App:
         try:
             for path, want in (("/", "Claude Duo"), ("/settings", "Claude Duo"), ("/compact", "Claude Duo")):
                 win = self.pop if path == "/compact" else self.main
-                win.load_url(self.base + path)
-                win.show()
+                self.show(win, path)
                 time.sleep(4)
                 title = win.evaluate_js("document.title") or ""
                 errs = win.evaluate_js("JSON.stringify(window.__errs||[])")
