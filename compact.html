@@ -99,7 +99,12 @@ label.ck{display:flex;align-items:center;gap:6px;margin-top:7px;color:var(--mute
     <div class="row"><span>Notify near limit</span><div class="sw" id="notify"></div></div>
     <div class="row"><span>Notify when Claude finishes</span><div class="sw" id="notify_done"></div></div>
     <div class="row"><span>Launch at login</span><div class="sw" id="login"></div></div>
+    <div class="row" title="See your usage and sessions on your iPhone, over your Wi-Fi"><span>iPhone app</span><div class="sw" id="phone"></div></div>
   </div>
+  <div id="phoneBox" hidden><div class="glass card" style="display:flex;gap:10px;align-items:center;padding:10px;margin-top:8px">
+    <img id="qr" alt="QR code for the iPhone app" width="92" height="92" style="border-radius:8px;background:#fff;padding:4px;flex:none">
+    <div style="font-size:11px;line-height:1.45">Point your iPhone's camera here and tap the link. Then in Safari tap Share → <b>Add to Home Screen</b>.<div class="mute" style="margin-top:3px">Your iPhone needs this Mac's Wi-Fi.</div></div>
+  </div></div>
   <h3>Claude on the web</h3>
   <div class="glass card"><div class="links">
     <button onclick="act('web_new')">✎ New chat</button><button onclick="act('web_recents')">☰ Chats</button>
@@ -180,7 +185,8 @@ async function sessions(){
 let t;
 async function save(patch){
   const r=await fetch('/api/settings',{method:'POST',headers:H,body:JSON.stringify(patch)}).then(r=>r.json());
-  if(r.error){$('saved').textContent=r.error;$('saved').classList.add('on');clearTimeout(t);t=setTimeout(()=>{$('saved').classList.remove('on');$('saved').textContent='Saved'},4000);return settings()}
+  const msg=r.error||r.phone_error;
+  if(msg){$('saved').textContent=msg;$('saved').classList.add('on');clearTimeout(t);t=setTimeout(()=>{$('saved').classList.remove('on');$('saved').textContent='Saved'},4000);if(r.error)return settings();showSettings(r);return}
   $('saved').classList.add('on');clearTimeout(t);t=setTimeout(()=>$('saved').classList.remove('on'),1200);
   showSettings(r);
 }
@@ -189,14 +195,20 @@ function showSettings(c){
   document.querySelectorAll('#plan_secs button').forEach(b=>b.classList.toggle('on',+b.dataset.v===c.plan_secs));
   document.querySelectorAll('#refresh_secs button').forEach(b=>b.classList.toggle('on',+b.dataset.v===c.refresh_secs));
   every(c.refresh_secs);
-  for(const k of ['show_icon','show_busy','notify','notify_done','login','live_feed'])$(k).classList.toggle('on',!!c[k]);
+  for(const k of ['show_icon','show_busy','notify','notify_done','login','live_feed','phone'])$(k).classList.toggle('on',!!c[k]);
+  phoneBox(!!c.phone);
   for(const k of ['yellow_at','red_at']){LV[k]=c[k];if(document.activeElement!==$(k))$(k).value=c[k]}
 }
 for(const k of ['yellow_at','red_at'])$(k).onchange=()=>save({[k]:+$(k).value});
 document.querySelectorAll('#display button').forEach(b=>b.onclick=()=>save({display:b.dataset.v}));
 document.querySelectorAll('#plan_secs button').forEach(b=>b.onclick=()=>save({plan_secs:+b.dataset.v}));
 document.querySelectorAll('#refresh_secs button').forEach(b=>b.onclick=()=>save({refresh_secs:+b.dataset.v}));
-for(const k of ['show_icon','show_busy','notify','notify_done','login','live_feed'])$(k).onclick=()=>save({[k]:!$(k).classList.contains('on')});
+async function phoneBox(on){  // the QR code your iPhone scans to open Claude Duo
+  const box=$('phoneBox');
+  if(on){try{const s=await fetch('/api/phone',{headers:H}).then(r=>r.json());if(s.qr)$('qr').src=s.qr;$('qr').title=s.link||''}catch(e){}}
+  box.hidden=!on;if(cur==='settings')fit();
+}
+for(const k of ['show_icon','show_busy','notify','notify_done','login','live_feed','phone'])$(k).onclick=()=>save({[k]:!$(k).classList.contains('on')});
 async function settings(){showSettings(await fetch('/api/settings').then(r=>r.json()))}
 
 function fit(){  // tell the app how tall this tab is, so the popup fits it without scrolling

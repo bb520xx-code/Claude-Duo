@@ -323,6 +323,103 @@ class LiveFeedSwitch(unittest.TestCase):
         self.assertTrue(cmd.rstrip().endswith(meter.MARK))
 
 
+
+class Phone(unittest.TestCase):
+    """The iPhone app: a secret link, read-only, and nothing private beyond what it shows."""
+    def setUp(self):
+        import phone
+        self.phone = phone
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        mock.patch.object(meter, "CONFIG", os.path.join(d.name, "c.json")).start()
+        summary = {"block": {"counted": 1200, "messages": 3, "resets_at": None, "input": 9},
+                   "week": {"counted": 5000, "messages": 9}, "all": {"counted": 90000, "messages": 99},
+                   "daily": [{"day": "d", "tokens": i} for i in range(20)], "hourly": [0] * 24,
+                   "projects": [{"project": "Desktop/Secret/App", "tokens": 70}], "models": [{"model": "claude-x", "tokens": 70}]}
+        mock.patch.object(meter, "summarize", return_value=summary).start()
+        mock.patch.object(meter, "plan_usage", return_value={"plan": "pro", "limits": [], "updated": 1}).start()
+        mock.patch.object(sessions, "running", return_value=[
+            {"name": "app", "status": "busy", "pane": "%1", "pid": 4242, "cwd": "/Users/me/app", "tty": "/dev/ttys1",
+             "session_id": "abc", "elapsed": "01:02:03"}]).start()
+        mock.patch.object(sessions, "grid_info", return_value=[{"pane": "%1"}, {"pane": "%2", "command": "zsh"}]).start()
+        mock.patch.object(phone, "host", return_value="Test-Mac").start()
+        self.addCleanup(mock.patch.stopall)
+        phone._cache.update(t=0, data=None)
+        self.srv = phone.Server(("::", 0), phone.Handler)
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+        self.addCleanup(self.srv.server_close)
+        self.addCleanup(self.srv.shutdown)
+        self.base = f"http://127.0.0.1:{self.srv.server_address[1]}"  # IPv4 reaches the dual-stack server
+        self.tok = phone.token()
+
+    def get(self, path):
+        try:
+            with urllib.request.urlopen(self.base + path, timeout=10) as r:
+                return r.status, r.read(), r.headers
+        except urllib.error.HTTPError as e:
+            return e.code, e.read(), e.headers
+
+    def test_secret_link_required(self):
+        self.assertEqual(self.get("/m/wrong/")[0], 404)
+        self.assertEqual(self.get("/")[0], 404)
+        self.assertEqual(self.get("/api/terms")[0], 404)  # none of the Mac app's endpoints exist here
+        code, body, _ = self.get(f"/m/{self.tok}/")
+        self.assertEqual(code, 200)
+        self.assertIn(b"Claude Duo", body)
+
+    def test_app_files(self):
+        _, m, _ = self.get(f"/m/{self.tok}/manifest.json")
+        self.assertEqual(json.loads(m)["display"], "standalone")
+        for name, magic in (("icon-180.png", b"\x89PNG"), ("icon-512.png", b"\x89PNG"), ("glass.css", b"/*"),
+                            ("ui.js", b"const fmt")):
+            code, body, _ = self.get(f"/m/{self.tok}/{name}")
+            self.assertEqual((code, body[:len(magic)]), (200, magic), name)
+        self.assertEqual(self.get(f"/m/{self.tok}/../meter.py")[0], 404)
+        self.assertEqual(self.get(f"/m/{self.tok}/config.json")[0], 404)
+
+    def test_data_has_nothing_to_act_on(self):
+        code, body, headers = self.get(f"/m/{self.tok}/api")
+        d = json.loads(body)
+        self.assertEqual(code, 200)
+        self.assertEqual(headers["Referrer-Policy"], "no-referrer")
+        self.assertEqual(d["sessions"], [{"name": "app", "status": "busy", "where": "grid", "elapsed": "01:02:03"}])
+        self.assertEqual(d["shells"], 1)
+        self.assertEqual(d["usage"]["projects"][0]["name"], "App")  # folder name only, not the path
+        self.assertEqual(len(d["usage"]["daily"]), 14)
+        for secret in (b"4242", b"/Users/me", b"ttys1", b"abc", b"Secret", b"phone_token", self.tok.encode()):
+            self.assertNotIn(secret, body)
+
+    def test_read_only(self):
+        req = urllib.request.Request(f"{self.base}/m/{self.tok}/api", data=b"{}", method="POST")
+        with self.assertRaises(urllib.error.HTTPError) as e:
+            urllib.request.urlopen(req, timeout=10)
+        self.assertEqual(e.exception.code, 501)
+
+    def test_link_without_slash_redirects(self):
+        conn = __import__("http.client").client.HTTPConnection("127.0.0.1", self.srv.server_address[1], timeout=10)
+        conn.request("GET", f"/m/{self.tok}")
+        r = conn.getresponse()
+        self.assertEqual((r.status, r.getheader("Location")), (301, f"/m/{self.tok}/"))
+        conn.close()
+
+    def test_new_link_locks_out_old_phones(self):
+        old = self.tok
+        new = self.phone.token(new=True)
+        self.assertNotEqual(old, new)
+        self.assertEqual(self.get(f"/m/{old}/")[0], 404)
+        self.assertEqual(self.get(f"/m/{new}/")[0], 200)
+
+    def test_links_and_qr(self):
+        meter.save_config({**meter.load_config(), "phone": True})
+        st = self.phone.status()
+        self.assertTrue(st["link"].startswith("http://Test-Mac.local:"))
+        self.assertTrue(st["link"].endswith(f"/m/{self.tok}/"))
+        if st["qr"] is not None:  # Core Image is there on any Mac
+            self.assertTrue(st["qr"].startswith("data:image/png;base64,"))
+
+    def test_token_not_settable_from_pages(self):
+        self.assertEqual(meter.sanitize({"phone": True, "phone_token": "x"}), {"phone": True})
+
 class Pace(unittest.TestCase):
     def test_projection(self):
         now = datetime(2026, 1, 1, 12, tzinfo=timezone.utc)
@@ -387,6 +484,26 @@ class Http(unittest.TestCase):
             urllib.request.urlopen(req)
         self.assertEqual(e.exception.code, 403)
         self.assertFalse(meter.live_feed_enabled())
+
+    def test_phone_settings_api(self):
+        import phone
+        with mock.patch.object(phone, "sync", return_value=None) as sy, \
+             mock.patch.object(phone, "qr_data_url", return_value="data:image/png;base64,x"):
+            self.assertTrue(self.post("/api/settings", {"phone": True})["phone"])
+            sy.assert_called()
+            req = urllib.request.Request(self.base + "/api/phone", headers={"X-Claude-Usage": "1"})
+            with urllib.request.urlopen(req) as r:
+                st = json.load(r)
+            self.assertTrue(st["on"])
+            self.assertIn("/m/", st["link"])
+            with self.assertRaises(urllib.error.HTTPError) as e:  # the link is secret: app pages only
+                urllib.request.urlopen(self.base + "/api/phone")
+            self.assertEqual(e.exception.code, 403)
+            old = st["link"]
+            self.post("/api/settings", {"phone_reset": True})
+            with urllib.request.urlopen(req) as r:
+                self.assertNotEqual(json.load(r)["link"], old)
+            self.assertFalse(self.post("/api/settings", {"phone": False})["phone"])
 
     def test_live_feed_via_settings_api(self):
         self.assertTrue(self.post("/api/settings", {"live_feed": True})["live_feed"])

@@ -59,6 +59,19 @@ input[type=number],input.short{width:104px;text-align:right;padding:6px 10px}
     <div class="row"><div>Launch at login<div class="d">Also rebuilds your session grid after a restart</div></div><div class="sw" id="login"></div></div>
     <div class="row"><div>Menu bar icon<div class="d">If it's missing, allow Claude Duo in the menu bar</div></div><button onclick="act('menubar_settings')" style="padding:6px 12px;font-size:12px">Open Menu Bar Settings</button></div>
   </div>
+  <h3>iPhone app</h3>
+  <div class="glass card">
+    <div class="row"><div>Claude Duo on your iPhone<div class="d">Your usage, limits and sessions, read-only. Works when your iPhone is on the same Wi-Fi as this Mac.</div></div><div class="sw" id="phone"></div></div>
+    <div class="row" id="phoneBox" hidden>
+      <img id="qr" alt="QR code for the iPhone app" width="132" height="132" style="border-radius:12px;background:#fff;padding:6px;flex:none">
+      <div style="flex:1;min-width:0">
+        <b>On your iPhone</b>
+        <ol style="margin:4px 0 8px;padding-left:18px;line-height:1.5"><li>Point the Camera at this code and tap the link.</li><li>In Safari tap Share, then <b>Add to Home Screen</b>.</li></ol>
+        <div class="mute" id="plink" style="font-size:11px;word-break:break-all;-webkit-user-select:text;user-select:text"></div>
+        <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap"><button id="copyLink" style="padding:6px 12px;font-size:12px">Copy link</button><button id="newLink" style="padding:6px 12px;font-size:12px" title="Phones with the old link stop working">New link</button></div>
+      </div>
+    </div>
+  </div>
 </section>
 <section>
   <h3>Claude on the web</h3>
@@ -96,18 +109,28 @@ let t;
 async function save(patch){
   const r=await fetch('/api/settings',{method:'POST',headers:{'X-Claude-Usage':'1'},body:JSON.stringify(patch)}).then(r=>r.json());
   const s=$('saved');
+  if(r.phone_error){s.textContent=r.phone_error;s.style.color='var(--bad)';s.classList.add('on');clearTimeout(t);t=setTimeout(()=>{s.classList.remove('on');s.textContent='Saved';s.style.color=''},5000);return show(r)}
   if(r.error){s.textContent=r.error;s.style.color='var(--bad)';s.classList.add('on');clearTimeout(t);t=setTimeout(()=>{s.classList.remove('on');s.textContent='Saved';s.style.color=''},5000);return fetch('/api/settings').then(r=>r.json()).then(show)}
   s.classList.add('on');clearTimeout(t);t=setTimeout(()=>s.classList.remove('on'),1200);
   show(r);
 }
 function show(c){
   document.querySelectorAll('#display button').forEach(b=>b.classList.toggle('on',b.dataset.v===c.display));
-  for(const k of ['show_icon','show_busy','notify','notify_done','login','live_feed'])$(k).classList.toggle('on',!!c[k]);
+  for(const k of ['show_icon','show_busy','notify','notify_done','login','live_feed','phone'])$(k).classList.toggle('on',!!c[k]);
+  phoneBox(!!c.phone);
   for(const k of ['refresh_secs','plan_secs','limit_5h','limit_week','yellow_at','red_at'])if(document.activeElement!==$(k))$(k).value=c[k];
   if(document.activeElement!==$('notify_at'))$('notify_at').value=(c.notify_at||[]).join(', ');
 }
 document.querySelectorAll('#display button').forEach(b=>b.onclick=()=>save({display:b.dataset.v}));
-for(const k of ['show_icon','show_busy','notify','notify_done','login','live_feed'])$(k).onclick=()=>save({[k]:!$(k).classList.contains('on')});
+let plink='';
+async function phoneBox(on){  // the QR code and link for the iPhone app
+  $('phoneBox').hidden=!on;if(!on)return;
+  try{const s=await fetch('/api/phone',{headers:{'X-Claude-Usage':'1'}}).then(r=>r.json());plink=s.link||'';if(s.qr)$('qr').src=s.qr;
+    $('plink').textContent=plink+(s.ip_link?'  ·  or '+s.ip_link:'')+(s.running?'':'  (not running yet)')}catch(e){}
+}
+$('copyLink').onclick=()=>{const i=document.createElement('textarea');i.value=plink;document.body.appendChild(i);i.select();document.execCommand('copy');i.remove();$('copyLink').textContent='Copied';setTimeout(()=>$('copyLink').textContent='Copy link',1200)};
+$('newLink').onclick=()=>{if($('newLink').dataset.sure){delete $('newLink').dataset.sure;$('newLink').textContent='New link';save({phone_reset:true})}else{$('newLink').dataset.sure=1;$('newLink').textContent='Old link stops working. Sure?';setTimeout(()=>{delete $('newLink').dataset.sure;$('newLink').textContent='New link'},4000)}};
+for(const k of ['show_icon','show_busy','notify','notify_done','login','live_feed','phone'])$(k).onclick=()=>save({[k]:!$(k).classList.contains('on')});
 for(const k of ['refresh_secs','plan_secs','limit_5h','limit_week','yellow_at','red_at'])$(k).onchange=()=>save({[k]:+$(k).value});
 $('notify_at').onchange=()=>save({notify_at:$('notify_at').value.split(/[ ,]+/).filter(Boolean).map(Number).filter(n=>!isNaN(n))});
 fetch('/api/settings').then(r=>r.json()).then(show);

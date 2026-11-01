@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Claude Duo">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#eef0f6">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#16161a">
+<meta name="color-scheme" content="light dark">
+<meta name="format-detection" content="telephone=no">
+<meta name="referrer" content="no-referrer">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-180.png">
+<link rel="manifest" href="manifest.json">
+<title>Claude Duo</title>
+<link rel="stylesheet" href="glass.css">
+<style>
+:root{--bg0:#eef0f6;--blob1:rgba(217,119,87,.30);--blob2:rgba(58,160,224,.26);--blob3:rgba(192,112,224,.18)}
+@media(prefers-color-scheme:dark){:root{--bg0:#16161a;--blob1:rgba(217,119,87,.30);--blob2:rgba(58,160,224,.20);--blob3:rgba(192,112,224,.16)}}
+html{background:var(--bg0)}
+body{font-size:15px;min-height:100vh;-webkit-tap-highlight-color:transparent;overscroll-behavior-y:none}
+.bg{position:fixed;inset:-20%;z-index:-1;pointer-events:none;
+background:radial-gradient(40% 30% at 15% 12%,var(--blob1),transparent 70%),radial-gradient(45% 35% at 90% 40%,var(--blob2),transparent 70%),
+radial-gradient(40% 30% at 30% 85%,var(--blob3),transparent 70%),var(--bg0)}
+.wrap{max-width:560px;margin:0 auto;padding:max(12px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) calc(env(safe-area-inset-bottom) + 104px) max(16px,env(safe-area-inset-left))}
+header{display:flex;align-items:center;gap:10px;padding:6px 2px 12px}
+header h1{font-size:28px;font-weight:700;letter-spacing:-.02em;margin:0}
+header .sub{color:var(--mute);font-size:13px;margin-top:1px}
+header button{margin-left:auto;width:40px;height:40px;padding:0;font-size:18px;flex:none}
+.spin{animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+h3{margin:18px 6px 8px;font-size:12px;font-weight:700;color:var(--mute);text-transform:uppercase;letter-spacing:.05em}
+.card{padding:16px}
+.hero{display:flex;align-items:center;gap:16px}
+.hero .ring .txt b{font-size:38px!important}
+.hero-txt{min-width:0}.hero-txt .cap{margin-bottom:4px}
+.hero-txt #resets{font-size:17px;font-weight:600}
+.hero-txt .s{color:var(--mute);font-size:13px;margin-top:4px}
+.lim+.lim{margin-top:14px;padding-top:14px;border-top:1px solid var(--track)}
+.lim .lt{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:7px}.lim .lt span{font-weight:700;font-size:17px}
+.lim .m{color:var(--mute);font-size:12px;margin-top:6px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:10px}
+.stats div{text-align:center}.stats span{display:block;color:var(--mute);font-size:11px}.stats b{font-size:15px}
+.list{padding:4px 16px}
+.list .row{display:flex;align-items:center;gap:12px;padding:12px 0;min-height:48px}
+.list .row+.row{border-top:1px solid var(--track)}
+.list .grow{flex:1;min-width:0}.list .grow b,.list .grow small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.list small{color:var(--mute);font-size:12.5px;margin-top:2px}
+.list .v{color:var(--mute);font-variant-numeric:tabular-nums}
+.bar2{height:5px;border-radius:3px;background:var(--well);margin-top:6px;overflow:hidden}.bar2 i{display:block;height:100%;border-radius:3px;background:var(--accent)}
+.dot{width:11px;height:11px;border-radius:50%;background:var(--mute);opacity:.6;flex:none}
+.dot.busy{opacity:1;background:var(--accent);box-shadow:0 0 8px var(--accent);animation:cntp 1.4s ease-in-out infinite}
+a.row{color:inherit;text-decoration:none}a.row i{font-style:normal;width:26px;text-align:center;font-size:18px;flex:none}a.row:after{content:"›";color:var(--mute);font-size:20px}
+.note{font-size:12.5px;margin:10px 6px 0}
+.banner{padding:12px 14px;margin-bottom:6px;font-size:13.5px;border-color:rgba(240,160,32,.6)}
+.banner a{color:var(--accent);font-weight:600;text-decoration:none;white-space:nowrap}
+.view{display:none}.view.on{display:block}.view.enter{animation:fade .25s ease}@keyframes fade{from{transform:translateY(6px)}}
+.tabbar{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 10px);display:flex;gap:2px;padding:5px;border-radius:999px;z-index:5;width:min(360px,calc(100% - 32px))}
+.tabbar button{flex:1;border:0;background:none;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;border-radius:999px;padding:7px 4px 6px;font-size:19px;line-height:1.1;color:var(--mute);position:relative}
+.tabbar button span{display:block;font-size:10.5px;font-weight:600;margin-top:2px}
+.tabbar button.on{color:var(--accent);background:linear-gradient(180deg,rgba(255,255,255,.5),rgba(255,255,255,.14));box-shadow:inset 0 1px 0 rgba(255,255,255,.8),0 2px 8px -1px var(--gl-shadow)}
+@media(prefers-color-scheme:dark){.tabbar button.on{background:linear-gradient(180deg,rgba(255,255,255,.2),rgba(255,255,255,.06))}}
+.tabbar .cnt{position:absolute;top:3px;left:calc(50% + 8px);margin:0}.cnt.hide{display:none}
+</style>
+</head>
+<body>
+<div class="bg"></div>
+<div class="wrap">
+<header>
+  <div><h1>Claude Duo</h1><div class="sub" id="sub">Connecting to your Mac…</div></div>
+  <button id="rf" aria-label="Refresh">↻</button>
+</header>
+<div class="glass banner" id="banner" hidden></div>
+
+<section class="view on" id="v-usage">
+  <div class="glass card hero">
+    <div class="ring" id="ring"></div>
+    <div class="hero-txt">
+      <div class="cap">5-hour session</div>
+      <div id="resets">–</div>
+      <div class="s" id="pace"></div>
+      <div class="s" id="fresh"></div>
+    </div>
+  </div>
+  <h3>Limits</h3>
+  <div class="glass card" id="lims"><div class="mute">Loading…</div></div>
+  <h3>Tokens · last 14 days</h3>
+  <div class="glass card"><div id="sp"></div><div class="stats" id="st"></div></div>
+  <h3>Busiest hours · last 30 days</h3>
+  <div class="glass card" id="hrs"></div>
+  <h3>Top projects · 30 days</h3>
+  <div class="glass card list" id="projects"></div>
+  <h3>By model · 30 days</h3>
+  <div class="glass card list" id="models"></div>
+</section>
+
+<section class="view" id="v-sessions">
+  <h3 id="sess-h">Claude sessions</h3>
+  <div class="glass card list" id="sess"></div>
+  <p class="note mute" id="shells"></p>
+  <p class="note mute">This is read-only. Start, move or stop sessions in Claude Duo on your Mac.</p>
+</section>
+
+<section class="view" id="v-more">
+  <h3>Claude on the web</h3>
+  <div class="glass card list">
+    <a class="row" href="https://claude.ai/settings/usage" target="_blank" rel="noreferrer"><i>◔</i><div class="grow"><b>Usage on claude.ai</b><small>Official numbers, works anywhere</small></div></a>
+    <a class="row" href="https://claude.ai/new" target="_blank" rel="noreferrer"><i>✎</i><div class="grow"><b>New chat</b><small>Start a conversation</small></div></a>
+    <a class="row" href="https://claude.ai/recents" target="_blank" rel="noreferrer"><i>☰</i><div class="grow"><b>Chats</b><small>Your past conversations</small></div></a>
+    <a class="row" href="https://claude.ai/code" target="_blank" rel="noreferrer"><i>❯</i><div class="grow"><b>Claude Code on the web</b><small>Coding sessions in the cloud</small></div></a>
+    <a class="row" href="https://claude.ai/settings/billing" target="_blank" rel="noreferrer"><i>▭</i><div class="grow"><b>Plan &amp; billing</b><small>Upgrade or add extra usage</small></div></a>
+    <a class="row" href="https://status.anthropic.com" target="_blank" rel="noreferrer"><i>●</i><div class="grow"><b>Status</b><small>Is Claude up right now?</small></div></a>
+  </div>
+  <h3>About</h3>
+  <div class="glass card list" id="about"></div>
+</section>
+</div>
+
+<nav class="tabbar glass" id="tabs">
+  <button data-v="usage" class="on">◔<span>Usage</span></button>
+  <button data-v="sessions">❯_<span>Sessions</span><i class="cnt hide" id="badge"></i></button>
+  <button data-v="more">⋯<span>More</span></button>
+</nav>
+
+<script src="ui.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const store={get(k){try{return JSON.parse(localStorage.getItem(k)||'null')}catch(e){return null}},
+             set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+let D=null,timer=null,secs=0;
+
+// a window whose reset time has passed is back to 0 %, even in data saved before the reset
+const fresh0=l=>(l.resets_at&&new Date(l.resets_at)<=new Date())?{...l,percent:0,resets_at:null,pace:null}:l;
+const short=l=>l.label.replace(' (all models)','').replace('5-hour session','Session');
+const up=e=>{const m=String(e||'').match(/^(?:(\d+)-)?(?:(\d+):)?(\d+):\d+$/);if(!m)return'';const d=+(m[1]||0),h=+(m[2]||0),mi=+m[3];return d?d+'d '+h+'h':h?h+'h '+mi+'m':mi+'m'};
+function freshLine(p){
+  if(!p.updated)return'';
+  const a=since(p.updated);
+  if(!p.stale)return(p.live?'<b style="color:var(--ok)">●</b> Live · ':'')+'Updated '+a;
+  return'<span style="color:var(--warn)">⚠︎ Updated '+a+(p.live_feed?'':' · turn on Live numbers in Claude Duo on your Mac')+'</span>';
+}
+function list(items,key){
+  if(!items||!items.length)return'<div class="row mute">Nothing in the last 30 days</div>';
+  const mx=Math.max(1,...items.map(i=>i.tokens));
+  return items.map(i=>`<div class="row"><div class="grow"><b>${esc(i[key])}</b><div class="bar2"><i style="width:${Math.max(2,i.tokens/mx*100)}%"></i></div></div><span class="v">${fmt(i.tokens)}</span></div>`).join('');
+}
+function render(d){
+  D=d;Object.assign(LV,d.colors||{});
+  const p=d.plan||{},L=(p.limits||[]).map(fresh0),f=L.find(l=>l.key==='five_hour')||L[0];
+  $('sub').textContent=(p.plan?p.plan.toUpperCase()+' plan · ':'')+d.host;
+  $('ring').innerHTML=ring(f?f.percent:0,132,12,'used');
+  $('resets').textContent=f?(f.resets_at?'Resets '+rs(f.resets_at):'Starts when you next use Claude'):(p.error||'No plan data yet');
+  const pc=f&&f.pace;$('pace').textContent=pc?(pc>=100?'⚠︎ On pace to hit the limit before it resets':'On pace for ~'+pc.toFixed(0)+'% by reset'):'';
+  $('pace').style.color=pc>=100?'var(--bad)':'';
+  $('fresh').innerHTML=freshLine(p);
+  $('lims').innerHTML=L.length?L.map(l=>`<div class="lim"><div class="lt"><b>${esc(short(l))}</b><span style="color:${col(l.percent)}">${l.percent.toFixed(0)}%</span></div>${seg(l.percent,20,col(l.percent),20)}<div class="m">${l.resets_at?'Resets '+rs(l.resets_at):'Starts when you next use Claude'}${l.pace?' · on pace for '+l.pace.toFixed(0)+'%':''}</div></div>`).join(''):`<div class="mute">${esc(p.error||'No limits yet')}</div>`;
+  const u=d.usage||{},days=(u.daily||[]).map(x=>x.tokens);
+  $('sp').innerHTML=days.length>1?spark(days,320,52,'#3aa0e0'):'';
+  $('st').innerHTML=[['5 hours',u.block&&u.block.counted],['7 days',u.week&&u.week.counted],['Today',days[days.length-1]],['All time',u.all&&u.all.counted]]
+    .map(([n,v])=>`<div><span>${n}</span><b>${fmt(v||0)}</b></div>`).join('');
+  $('hrs').innerHTML=hourChart(u.hourly||Array(24).fill(0),72);
+  $('projects').innerHTML=list(u.projects,'name');
+  $('models').innerHTML=list((u.models||[]).map(m=>({...m,model:m.model.replace(/^claude-/,'').replace(/-(\d+)-(\d+)$/,' $1.$2')})),'model');
+  const S=d.sessions||[],busy=S.filter(s=>s.status==='busy').length;
+  $('sess-h').textContent='Claude sessions'+(S.length?' · '+(busy?busy+' working':'all waiting for you'):'');
+  $('sess').innerHTML=S.length?S.map(s=>`<div class="row"><span class="dot${s.status==='busy'?' busy':''}"></span><div class="grow"><b>${esc(s.name)}</b><small>${s.status==='busy'?'Working…':'Waiting for you'} · ${s.where==='grid'?'in the grid':'Terminal window'}${s.elapsed?' · '+up(s.elapsed):''}</small></div></div>`).join('')
+    :'<div class="row mute">No Claude sessions are running on your Mac.</div>';
+  $('shells').textContent=d.shells?`Also ${d.shells} terminal pane${d.shells>1?'s':''} in the grid.`:'';
+  const b=$('badge');b.textContent=S.length||'';b.className='cnt'+(busy?' busy':'')+(S.length?'':' hide');
+  $('about').innerHTML=[['Your Mac',esc(d.host)],['Live numbers',p.live_feed?'On':'Off · turn on in Claude Duo ⚙'],['Updates','every '+Math.max(10,d.refresh_secs||10)+' s while open'],['Access','Read-only, on your Wi-Fi']]
+    .map(([k,v])=>`<div class="row"><div class="grow"><b>${k}</b></div><span class="v">${v}</span></div>`).join('');
+  every(d.refresh_secs);
+}
+function banner(html){const b=$('banner');b.hidden=!html;b.innerHTML=html||''}
+async function load(){
+  const rf=$('rf');rf.classList.add('spin');
+  try{
+    const ctl=new AbortController(),to=setTimeout(()=>ctl.abort(),8000);
+    const r=await fetch('api',{cache:'no-store',signal:ctl.signal});clearTimeout(to);
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const d=await r.json();
+    render(d);store.set('duo',d);banner('');
+  }catch(e){
+    const c=D||store.get('duo');
+    if(c){render(c);banner(`Can't reach ${esc(c.host)} right now, so this is from ${since(c.now)}. Your iPhone needs to be on the same Wi-Fi as your Mac. <a href="https://claude.ai/settings/usage" target="_blank" rel="noreferrer">Usage on claude.ai ›</a>`)}
+    else banner(`Can't reach your Mac. Your iPhone needs to be on the same Wi-Fi as it, with Claude Duo running. <a href="https://claude.ai/settings/usage" target="_blank" rel="noreferrer">Usage on claude.ai ›</a>`);
+  }finally{setTimeout(()=>rf.classList.remove('spin'),300)}
+}
+function every(s){  // refresh on the Mac's interval while the app is on screen
+  s=Math.max(10,+s||10);if(s===secs)return;secs=s;clearInterval(timer);
+  timer=setInterval(()=>{if(!document.hidden)load()},s*1000);
+}
+function view(v){
+  document.querySelectorAll('.view').forEach(x=>{const on=x.id==='v-'+v;x.classList.toggle('on',on);x.classList.toggle('enter',on)});
+  document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
+  store.set('tab',v);scrollTo(0,0);
+}
+document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>view(b.dataset.v));
+$('rf').onclick=load;
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)load()});  // back on screen: catch up at once
+const t=store.get('tab');if(t&&$('v-'+t))view(t);
+const c=store.get('duo');if(c)render(c);  // show the last numbers instantly, then fetch fresh ones
+load();every(10);
+</script>
+</body>
+</html>

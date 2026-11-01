@@ -484,6 +484,11 @@ def main():
             except OSError:
                 pass
         return
+    try:  # the iPhone app, if it's turned on in Settings
+        import phone
+        phone.sync()
+    except Exception:
+        pass
     bundle = AppKit.NSBundle.mainBundle().bundlePath()
     if bundle.endswith(".app"):  # wherever the app lives, so "Launch at login" opens this copy
         meter.state["app_path"] = bundle

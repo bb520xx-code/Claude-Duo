@@ -14,6 +14,7 @@ A macOS menu bar app for people who live in [Claude Code](https://claude.com/cla
   full conversation (`claude --resume`).
 - **Crash-proof grid**: the layout, each pane's folder, its Claude conversation, screen text and shell
   history are saved every few seconds and rebuilt after a crash or restart.
+- **iPhone app**: your usage, limits, token charts and which sessions are working, on your iPhone's Home Screen.
 - **Notifications** near your limit and when Claude finishes in any session.
 - Quick links to claude.ai settings, billing, docs and status.
 
@@ -51,6 +52,24 @@ menu bar icon). If the icon doesn't show, allow Claude Duo under System Settings
 
 Organization API usage (Console) needs an Admin API key (`sk-ant-admin…`), pasted in the Usage tab.
 It is kept in memory only.
+
+## iPhone app
+
+Claude Duo on your Mac also serves a phone version over your Wi-Fi.
+
+1. On the Mac: Claude Duo **⚙ → iPhone app** (on). A QR code appears.
+2. On the iPhone: point the Camera at the QR code and tap the link.
+3. In Safari tap **Share → Add to Home Screen**. It opens full screen with the Claude Duo icon, like an app.
+
+It shows the same numbers as the Mac: the session and weekly limits with reset times and pace, token charts,
+busiest hours, top projects, models, and which Claude sessions are working or waiting for you.
+
+- **Read-only.** It has no way to change anything on the Mac: no terminal or settings endpoints exist on its
+  port (8766), and it only answers under a secret link. **⚙ → New link** locks out every phone that had the old one.
+- **Same Wi-Fi.** The iPhone needs to be on the Mac's network (or a VPN such as Tailscale to reach it from
+  anywhere). Away from it, the app shows the last numbers it got, and a link to the official usage page on claude.ai.
+- **Why not the App Store or a download?** iPhones only install apps from the App Store, TestFlight or Xcode.
+  A Home Screen web app needs none of that, and its code ships here in `iphone/` and `phone.py`.
 
 ## Develop
 

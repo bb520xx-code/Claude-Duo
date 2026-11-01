@@ -69,7 +69,7 @@ def sanitize(d):
     out = {}
     if d.get("display") in ("session", "weekly", "both"):
         out["display"] = d["display"]
-    for k in ("notify", "show_icon", "notify_done", "show_busy"):
+    for k in ("notify", "show_icon", "notify_done", "show_busy", "phone"):
         if isinstance(d.get(k), bool):
             out[k] = d[k]
     for k in ("limit_5h", "limit_week"):
@@ -510,7 +510,8 @@ class H(BaseHTTPRequestHandler):
         if host not in ("127.0.0.1", "localhost"):
             self.send({"error": "forbidden"}, code=403)
             return False
-        guarded = self.path.startswith("/api/term") or (self.command == "POST" and self.path == "/api/settings")
+        guarded = self.path.startswith("/api/term") or self.path == "/api/phone" \
+            or (self.command == "POST" and self.path == "/api/settings")
         if guarded and self.headers.get("X-Claude-Usage") != "1":
             self.send({"error": "forbidden"}, code=403)  # the custom header can't be sent cross-site without CORS
             return False
@@ -546,6 +547,9 @@ class H(BaseHTTPRequestHandler):
             self.send({**load_config(), "login": login_enabled(), "live_feed": live_feed_enabled()})
         elif self.path == "/api/plan":
             self.send(plan_usage())
+        elif self.path == "/api/phone":  # the iPhone link and its QR code (secret, so app pages only)
+            import phone
+            self.send(phone.status())
         elif self.path == "/api/account":
             self.send(admin_usage())
         else:
@@ -595,13 +599,21 @@ class H(BaseHTTPRequestHandler):
             save_config(cfg)
             if isinstance(d.get("login"), bool):
                 set_login(d["login"])
+            extra = {}
+            if "phone" in d or d.get("phone_reset") is True:
+                import phone
+                if d.get("phone_reset") is True:
+                    phone.token(new=True)  # phones with the old link stop working
+                err = phone.sync()
+                if err:
+                    extra["phone_error"] = err
             if isinstance(d.get("live_feed"), bool):
                 try:
                     set_live_feed(d["live_feed"])
                 except (OSError, ValueError) as e:
                     self.send({"error": f"Couldn't change Claude Code's settings: {e}"}, code=400)
                     return
-            self.send({**load_config(), "login": login_enabled(), "live_feed": live_feed_enabled()})
+            self.send({**load_config(), "login": login_enabled(), "live_feed": live_feed_enabled(), **extra})
         elif self.path == "/api/action":
             if d.get("name") in ("open", "quit", "settings", "diagnose", "sessions", "menubar_settings") \
                     or d.get("name") in LINKS:
