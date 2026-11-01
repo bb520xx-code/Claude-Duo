@@ -1,6 +1,27 @@
 # Claude Duo
 
-A macOS menu bar app for people who live in [Claude Code](https://claude.com/claude-code).
+A macOS menu bar app for people who live in [Claude Code](https://claude.com/claude-code), now with an iPhone version.
+
+## New: Claude Duo on your iPhone
+
+Check your Claude limits from the couch. Claude Duo on your Mac now serves a phone version over your Wi-Fi:
+scan a QR code, tap **Add to Home Screen**, and it opens full screen like any other app. No App Store, no
+Xcode, nothing to install on the phone.
+
+<p align="center">
+  <img src="docs/iphone-usage.png" width="260" alt="Usage tab: the 5-hour session ring, limits with reset times, and token charts">
+  &nbsp;&nbsp;
+  <img src="docs/iphone-sessions.png" width="260" alt="Sessions tab: which Claude sessions are working or waiting for you">
+</p>
+
+- **Usage**: your 5-hour and weekly limits with reset countdowns and pace, live from your Mac, plus token
+  charts, busiest hours, top projects and models.
+- **Sessions**: every Claude session on your Mac, and whether it's working or waiting for you.
+- **Safe**: look-only, behind a secret link, and only on your own network.
+
+[Set it up in a minute →](#iphone-app) *(Screenshots use demo data.)*
+
+## On your Mac
 
 - **Plan usage in the menu bar**: `✦ 47%` for your 5-hour session (or weekly, or both), coloured
   green → yellow → red at thresholds you choose. A `●` appears while any Claude session is working.
