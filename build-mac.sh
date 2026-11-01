@@ -13,7 +13,8 @@ rm -rf build dist
 APP="dist/Claude Duo.app"
 # a menu bar app: no Dock icon
 plutil -insert LSUIElement -bool true "$APP/Contents/Info.plist"
-plutil -replace CFBundleShortVersionString -string "${VERSION:-2.1.0}" "$APP/Contents/Info.plist"
+V=${VERSION:-2.1.0}; [[ $V == [0-9]* ]] || V=2.1.0  # a tag like v2.1.0 gives 2.1.0; a branch build keeps the default
+plutil -replace CFBundleShortVersionString -string "$V" "$APP/Contents/Info.plist"
 codesign --force --deep --sign - "$APP"  # re-seal after editing Info.plist (ad hoc: not from an identified developer)
 ditto -c -k --keepParent "$APP" dist/Claude-Duo-Mac.zip
 echo "Built $APP and dist/Claude-Duo-Mac.zip"
