@@ -5,7 +5,7 @@ const LV={yellow_at:50,red_at:90};  // colour thresholds, loaded from Settings
 const col=p=>p>=LV.red_at?'var(--bad)':p>=LV.yellow_at?'var(--yel)':'var(--ok)';
 // Appearance (Settings): the Mac app switches its own windows light or dark; anywhere else the page does it
 const theme=t=>{if(document.documentElement.classList.contains('solid')){if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;else delete document.documentElement.dataset.theme}};
-fetch('/api/settings').then(r=>r.json()).then(c=>{for(const k in LV)if(c[k])LV[k]=c[k];theme(c.theme)}).catch(()=>{});
+fetch('/api/settings').then(r=>r.json()).then(c=>{for(const k in LV)if(c[k])LV[k]=c[k];if(c.theme)theme(c.theme)}).catch(()=>{});  // the iPhone app has no settings here: it keeps its own
 const rs=iso=>{if(!iso)return'—';const m=Math.max(0,Math.round((new Date(iso)-new Date())/60000));return 'in '+(m>=1440?Math.floor(m/1440)+'d '+Math.floor(m%1440/60)+'h':Math.floor(m/60)+'h '+m%60+'m')};
 const since=t=>{const s=Math.max(0,Math.round(Date.now()/1000-t));return s<10?'just now':s<60?s+' s ago':s<3600?Math.round(s/60)+' min ago':Math.round(s/3600)+' h ago'};
 // how fresh the plan % is: live from Claude Code, or old (and why)

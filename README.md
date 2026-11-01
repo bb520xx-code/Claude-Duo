@@ -17,6 +17,7 @@ Xcode, nothing to install on the phone.
 - **Usage**: your 5-hour and weekly limits with reset countdowns and pace, live from your Mac, plus token
   charts, busiest hours, top projects and models.
 - **Sessions**: every Claude session on your Mac, and whether it's working or waiting for you.
+- **Light or dark**: More → Appearance, saved on the phone.
 - **Safe**: look-only, behind a secret link, and only on your own network.
 
 [Set it up in a minute →](#iphone-app) *(Screenshots use demo data.)*
