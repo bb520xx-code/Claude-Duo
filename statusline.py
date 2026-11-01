@@ -50,6 +50,15 @@ def config():
         return {}
 
 
+def git_bash():
+    """On Windows Claude Code runs status lines with Git Bash, so a status line you had is run the same way."""
+    for p in (os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "Git", "bin", "bash.exe"),
+              os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Git", "bin", "bash.exe")):
+        if os.path.exists(p):
+            return p
+    return None
+
+
 def usage_line(d, cfg):
     rl = d.get("rate_limits") or {}
     yellow, red = cfg.get("yellow_at", 50), cfg.get("red_at", 90)
@@ -84,8 +93,9 @@ def main():
     cmd = prev.get("command") if isinstance(prev, dict) else None
     if cmd and "statusline.py" not in cmd and "--claude-duo" not in cmd:  # the one you had before: keep showing it
         try:
-            r = subprocess.run(cmd, shell=True, input=raw, capture_output=True, text=True, timeout=10,
-                               encoding="utf-8", errors="replace")
+            run = dict(input=raw, capture_output=True, text=True, timeout=10, encoding="utf-8", errors="replace")
+            bash = git_bash() if os.name == "nt" else None
+            r = subprocess.run([bash, "-c", cmd], **run) if bash else subprocess.run(cmd, shell=True, **run)
             sys.stdout.write(r.stdout)
             return
         except Exception:

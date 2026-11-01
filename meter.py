@@ -483,7 +483,8 @@ def live_feed_enabled():
         sl = _claude_settings().get("statusLine")
     except (OSError, ValueError):
         return False
-    return isinstance(sl, dict) and STATUSLINE in str(sl.get("command") or "")
+    cmd = str(sl.get("command") or "") if isinstance(sl, dict) else ""
+    return MARK in cmd or STATUSLINE.replace("\\", "/") in cmd.replace("\\", "/")
 
 
 def set_live_feed(on):

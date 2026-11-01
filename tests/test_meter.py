@@ -56,7 +56,7 @@ class LocalUsage(unittest.TestCase):
     def test_project_breakdown(self):
         self.write([entry(datetime.now(timezone.utc), "p1")])
         self.assertEqual(len(meter.summarize()["projects"]), 1)
-        home = os.path.expanduser("~").replace("/", "-")
+        home = re.sub(r"[^A-Za-z0-9]", "-", os.path.expanduser("~"))  # how Claude Code names project folders
         self.assertEqual(meter.project_name(f"/x/{home}-Desktop-App/s.jsonl"), "Desktop/App")
 
     def test_empty(self):
