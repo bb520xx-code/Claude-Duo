@@ -422,7 +422,7 @@ class App(rumps.App):
             elif act == "diagnose":  # where the menu bar item really is, for troubleshooting
                 it = self._nsapp.nsstatusitem
                 w = it.button().window()
-                with open(os.path.join(meter.HERE, "status.log"), "w") as f:
+                with open(os.path.join(meter.DATA, "status.log"), "w") as f:
                     f.write(f"visible={it.isVisible()} title={it.button().title()!r} length={it.length()}\n"
                             f"frame={w.frame() if w else None} occlusion={w.occlusionState() if w else None} "
                             f"screen={w.screen().frame() if w and w.screen() else None}\n"

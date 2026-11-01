@@ -10,8 +10,9 @@ before Claude Duo, if any, otherwise your usage.
 Must be quick and must never fail: Claude Code runs it after every message."""
 import json, os, subprocess, sys, time
 
-if getattr(sys, "frozen", False):  # inside Claude Duo.exe on Windows: data lives in %APPDATA%\\Claude Duo
-    HERE = os.environ.get("CLAUDE_DUO_DIR") or os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "Claude Duo")
+if getattr(sys, "frozen", False):  # inside the downloaded app (Windows .exe or Mac .app): its data folder
+    from paths import DATA
+    HERE = os.environ.get("CLAUDE_DUO_DIR") or DATA
 else:
     HERE = os.environ.get("CLAUDE_DUO_DIR") or os.path.dirname(os.path.abspath(__file__))
 LIVE = os.path.join(HERE, "live")

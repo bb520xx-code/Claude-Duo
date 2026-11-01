@@ -441,6 +441,26 @@ class CrossPlatform(unittest.TestCase):
                          (os.getpid(), "my app", "busy", f"s{os.getpid()}", None))
         self.assertEqual(s["elapsed"], "01:02:05")
 
+    def test_data_folder_per_build(self):
+        import paths
+        env = {k: v for k, v in os.environ.items() if k != "CLAUDE_DUO_DATA"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            with mock.patch.object(paths, "FROZEN", False):
+                self.assertEqual(paths._data(), paths.HERE)  # from the code: next to it
+            with mock.patch.object(paths, "FROZEN", True), mock.patch.object(paths, "MAC", True):
+                self.assertEqual(paths._data(), os.path.expanduser("~/Library/Application Support/Claude Duo"))
+            with mock.patch.object(paths, "FROZEN", True), mock.patch.object(paths, "MAC", False), \
+                 mock.patch.dict(os.environ, {"APPDATA": os.path.join("C:", "AppData")}):
+                self.assertEqual(paths._data(), os.path.join("C:", "AppData", "Claude Duo"))
+        with mock.patch.dict(os.environ, {"CLAUDE_DUO_DATA": "/x"}):
+            self.assertEqual(paths._data(), "/x")
+
+    def test_mac_app_status_line(self):
+        with mock.patch.object(meter, "WIN", False), mock.patch.object(meter, "FROZEN", True), \
+             mock.patch.object(sys, "executable", "/Applications/Claude Duo.app/Contents/MacOS/Claude Duo"):
+            cmd = meter.statusline_cmd()
+        self.assertEqual(cmd, "'/Applications/Claude Duo.app/Contents/MacOS/Claude Duo' --statusline --claude-duo")
+
     def test_elapsed_like_ps(self):
         self.assertEqual([sessions._etime(x) for x in (59, 125, 3725, 90061)], ["00:59", "02:05", "01:02:05", "1-01:01:01"])
 

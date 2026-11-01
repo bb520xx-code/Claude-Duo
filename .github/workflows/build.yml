@@ -1,0 +1,118 @@
+# Tests and builds both downloads: "Claude-Duo-Windows.exe" and "Claude-Duo-Mac.zip".
+# A tag like v2.1.0 also publishes them as two files on one release.
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-windows.txt pyinstaller
+
+      - name: Tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Build the .exe
+        run: |
+          python -c "from PIL import Image; Image.open('iphone/icon-512.png').save('claude-duo.ico', sizes=[(16,16),(24,24),(32,32),(48,48),(64,64),(128,128),(256,256)])"
+          pyinstaller --noconfirm --onefile --windowed --name "Claude Duo" --icon claude-duo.ico `
+            --add-data "index.html;." --add-data "compact.html;." --add-data "settings.html;." --add-data "sessions.html;." `
+            --add-data "glass.css;." --add-data "ui.js;." --add-data "iphone;iphone" `
+            --hidden-import phone --hidden-import statusline winapp.py
+          Copy-Item "dist\Claude Duo.exe" "dist\Claude-Duo-Windows.exe"
+
+      - name: Self-test the .exe (server, pages, APIs, iPhone app, icon)
+        run: |
+          $p = Start-Process -FilePath "dist\Claude Duo.exe" -ArgumentList "--selftest", "$PWD\selftest.txt" -Wait -PassThru
+          Get-Content selftest.txt
+          if ($p.ExitCode -ne 0) { exit 1 }
+
+      - name: Window test (real WebView2 windows and tray icon)
+        continue-on-error: true
+        run: |
+          $p = Start-Process -FilePath "dist\Claude Duo.exe" -ArgumentList "--guitest", "$PWD\guitest.txt" -PassThru
+          if (-not $p.WaitForExit(90000)) { $p.Kill(); "FAILED: timed out" | Out-File guitest.txt -Append }
+          Get-Content guitest.txt
+          if ($p.ExitCode -ne 0) { exit 1 }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Claude-Duo-Windows
+          path: |
+            dist/Claude-Duo-Windows.exe
+            selftest.txt
+            guitest.txt
+            tray-icon-preview.png
+
+  mac:
+    runs-on: macos-latest   # Apple silicon
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt segno pyinstaller
+
+      - name: Tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Build the app
+        run: VERSION="${GITHUB_REF_NAME#v}" ./build-mac.sh python
+
+      - name: Self-test the app (menu bar code, server, pages, APIs, iPhone app, status line)
+        run: |
+          "dist/Claude Duo.app/Contents/MacOS/Claude Duo" --selftest "$PWD/selftest.txt" || { cat selftest.txt; exit 1; }
+          cat selftest.txt
+          echo '{"session_id":"ci","rate_limits":{"five_hour":{"used_percentage":12.5,"resets_at":1900000000}}}' \
+            | CLAUDE_DUO_DIR="$PWD/sl" "dist/Claude Duo.app/Contents/MacOS/Claude Duo" --statusline
+          test -f sl/live/ci.json
+          codesign --verify --deep --strict "dist/Claude Duo.app"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Claude-Duo-Mac
+          path: |
+            dist/Claude-Duo-Mac.zip
+            selftest.txt
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, mac]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+      - name: Publish both files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" Claude-Duo-Mac/dist/Claude-Duo-Mac.zip Claude-Duo-Windows/dist/Claude-Duo-Windows.exe \
+            --title "Claude Duo $GITHUB_REF_NAME" --prerelease --notes "Two downloads: pick the one for your computer.
+
+          **Mac (Apple silicon): Claude-Duo-Mac.zip.** Open it, drag **Claude Duo** to Applications, then open it. Your Claude plan % appears in the menu bar. The first time macOS says it can't check the app: open System Settings → Privacy & Security and click **Open Anyway**. (The pane grid needs tmux: \`brew install tmux\`.)
+
+          **Windows: Claude-Duo-Windows.exe.** Run it. Your Claude plan % appears in the system tray (by the clock; if it's hidden, drag it out of the ^ overflow). Windows may warn about an unknown publisher the first time: choose More info, then Run anyway.
+
+          See the README for details."

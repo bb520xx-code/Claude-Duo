@@ -461,6 +461,8 @@ def statusline_cmd():
             next((p for p in (os.path.join(HERE, ".venv", "Scripts", "python.exe"), sys.executable) if os.path.exists(p)),
                  "python"), "-I", STATUSLINE]
         return " ".join(f'"{a}"' if " " in a else a for a in (x.replace("\\", "/") for x in args)) + " " + MARK
+    if FROZEN:  # the downloaded Mac app runs it itself
+        return f"{shlex.quote(sys.executable)} --statusline {MARK}"
     py = next((p for p in (os.path.join(HERE, ".venv", "bin", "python3"),
                            os.path.join(sys.base_prefix, "bin", "python3")) if os.path.exists(p)), None) \
         or shutil.which("python3") or "python3"
