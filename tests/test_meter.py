@@ -542,6 +542,10 @@ class Settings(unittest.TestCase):
         self.assertEqual(meter.sanitize({"yellow_at": 150, "orange_at": 70, "red_at": 0, "x": 1}),
                          {"yellow_at": 100, "red_at": 1})
         self.assertEqual(meter.sanitize({"red_at": True, "orange_at": "80"}), {})
+        for t in ("auto", "light", "dark"):  # Appearance
+            self.assertEqual(meter.sanitize({"theme": t}), {"theme": t})
+        self.assertEqual(meter.sanitize({"theme": "purple"}), {})
+        self.assertEqual(meter.DEFAULTS["theme"], "auto")
 
     def test_login_toggle(self):
         with tempfile.TemporaryDirectory() as d, mock.patch.object(meter, "LAUNCH_PLIST", os.path.join(d, "a.plist")):

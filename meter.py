@@ -25,7 +25,8 @@ DEFAULTS = {"limit_5h": 1_000_000, "limit_week": 10_000_000,
             "display": "session",  # what the menu bar shows: session | weekly | both
             "show_icon": True, "refresh_secs": 10, "plan_secs": 60, "notify_done": True, "show_busy": True,
             "notify": True, "notify_at": [80, 95],
-            "yellow_at": 50, "red_at": 90}  # menu bar / bar colours (percent used)
+            "yellow_at": 50, "red_at": 90,  # menu bar / bar colours (percent used)
+            "theme": "auto"}  # windows: auto (follow the computer) | light | dark
 LINKS = {"credits": "https://claude.ai/settings/usage",       # extra usage / credits live here
          "upgrade": "https://claude.ai/upgrade",
          "api_credits": "https://platform.claude.com/settings/billing",
@@ -69,6 +70,8 @@ def sanitize(d):
     out = {}
     if d.get("display") in ("session", "weekly", "both"):
         out["display"] = d["display"]
+    if d.get("theme") in ("auto", "light", "dark"):
+        out["theme"] = d["theme"]
     for k in ("notify", "show_icon", "notify_done", "show_busy", "phone"):
         if isinstance(d.get(k), bool):
             out[k] = d[k]

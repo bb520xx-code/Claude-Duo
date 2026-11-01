@@ -64,6 +64,7 @@ Releases page.
   history are saved every few seconds and rebuilt after a crash or restart.
 - **iPhone app**: your usage, limits, token charts and which sessions are working, on your iPhone's Home Screen.
 - **Notifications** near your limit and when Claude finishes in any session.
+- **Light or dark**: ⚙ → Appearance switches every window to Light or Dark, or Auto to follow your Mac.
 - Quick links to claude.ai settings, billing, docs and status.
 
 > Not affiliated with Anthropic. Uses the sign-in Claude Code already saved on your Mac to read your

@@ -56,6 +56,8 @@ input[type=number],input.short{width:104px;text-align:right;padding:6px 10px}
   </div>
   <h3>General</h3>
   <div class="glass card">
+    <div class="row"><div>Appearance<div class="d">Light or dark windows. Auto follows your computer.</div></div>
+      <div class="seg" id="theme"><button data-v="auto">Auto</button><button data-v="light">☀︎ Light</button><button data-v="dark">☾ Dark</button></div></div>
     <div class="row"><div>Launch at login<div class="d">Also rebuilds your session grid after a restart</div></div><div class="sw" id="login"></div></div>
     <div class="row"><div>Menu bar icon<div class="d">If it's missing, allow Claude Duo in the menu bar</div></div><button onclick="act('menubar_settings')" style="padding:6px 12px;font-size:12px">Open Menu Bar Settings</button></div>
   </div>
@@ -116,12 +118,14 @@ async function save(patch){
 }
 function show(c){
   document.querySelectorAll('#display button').forEach(b=>b.classList.toggle('on',b.dataset.v===c.display));
+  document.querySelectorAll('#theme button').forEach(b=>b.classList.toggle('on',b.dataset.v===(c.theme||'auto')));theme(c.theme);
   for(const k of ['show_icon','show_busy','notify','notify_done','login','live_feed','phone'])$(k).classList.toggle('on',!!c[k]);
   phoneBox(!!c.phone);
   for(const k of ['refresh_secs','plan_secs','limit_5h','limit_week','yellow_at','red_at'])if(document.activeElement!==$(k))$(k).value=c[k];
   if(document.activeElement!==$('notify_at'))$('notify_at').value=(c.notify_at||[]).join(', ');
 }
 document.querySelectorAll('#display button').forEach(b=>b.onclick=()=>save({display:b.dataset.v}));
+document.querySelectorAll('#theme button').forEach(b=>b.onclick=()=>save({theme:b.dataset.v}));
 let plink='';
 async function phoneBox(on){  // the QR code and link for the iPhone app
   $('phoneBox').hidden=!on;if(!on)return;

@@ -77,6 +77,7 @@ class App(rumps.App):
         self.hooked = False
         self.pending = None
         self.live_mtime = None  # when Claude Code last wrote live numbers (see statusline.py)
+        self.cfg_mtime = None  # when the settings last changed, to switch light / dark right away
         self.wake = threading.Event()
         threading.Thread(target=self.worker, daemon=True).start()
         threading.Thread(target=self.grid_keeper, daemon=True).start()
@@ -427,9 +428,23 @@ class App(rumps.App):
                             f"frame={w.frame() if w else None} occlusion={w.occlusionState() if w else None} "
                             f"screen={w.screen().frame() if w and w.screen() else None}\n"
                             f"menubar_visible={AppKit.NSMenu.menuBarVisible()} policy={AppKit.NSApp.activationPolicy()}\n"
-                            f"color={self.title_color}\n")
+                            f"color={self.title_color}\n"
+                            f"appearance={AppKit.NSApp.effectiveAppearance().name()}\n")
             elif isinstance(act, str) and act in meter.LINKS:
                 webbrowser.open(meter.LINKS[act])
+
+    def apply_theme(self):
+        """Settings → Appearance: every window (glass and pages) light, dark, or following the Mac."""
+        try:
+            m = os.stat(meter.CONFIG).st_mtime
+        except OSError:
+            m = 0
+        if m == self.cfg_mtime:
+            return
+        self.cfg_mtime = m
+        name = {"light": AppKit.NSAppearanceNameAqua, "dark": AppKit.NSAppearanceNameDarkAqua}.get(
+            meter.load_config().get("theme"))
+        AppKit.NSApp.setAppearance_(AppKit.NSAppearance.appearanceNamed_(name) if name else None)
 
     def apply(self, _):
         self.drain()
@@ -440,6 +455,7 @@ class App(rumps.App):
             which, self.show_on_start = self.show_on_start, False
             self.open_sessions() if which == "sessions" else self.open(None)
         self.ticks += 1
+        self.apply_theme()
         try:  # Claude Code just wrote new live numbers: show them now, not at the next refresh
             m = os.stat(meter.LIVE_DIR).st_mtime
         except OSError:
