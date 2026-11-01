@@ -1,0 +1,6 @@
+# Claude Duo on Windows (Python 3.10 to 3.13; 3.12 recommended)
+pystray>=0.19.5      # the system tray icon
+Pillow>=10.4         # draws the % on the icon
+pywebview>=5.1       # the windows (Microsoft Edge WebView2, built into Windows 10 and 11)
+psutil>=5.9          # checks which Claude Code sessions are running
+segno>=1.6           # the QR code for the iPhone app

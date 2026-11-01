@@ -1,3 +1,5 @@
+// the Mac app draws real glass behind its pages; anywhere else (Windows, a browser) they get a painted backdrop
+if(!(window.webkit&&window.webkit.messageHandlers))document.documentElement.classList.add('solid');
 const fmt=n=>n>=1e6?(n/1e6).toFixed(2)+'M':n>=1e3?(n/1e3).toFixed(1)+'k':String(n);
 const LV={yellow_at:50,red_at:90};  // colour thresholds, loaded from Settings
 const col=p=>p>=LV.red_at?'var(--bad)':p>=LV.yellow_at?'var(--yel)':'var(--ok)';

@@ -56,3 +56,10 @@ box-shadow:inset 0 1px 0 rgba(255,255,255,.7),0 2px 8px -2px var(--gl-shadow);tr
 text-align:center;color:var(--ink);background:var(--track);box-shadow:inset 0 1px 0 rgba(255,255,255,.5)}
 .cnt.busy{color:#fff;background:var(--accent);box-shadow:0 0 8px var(--accent);animation:cntp 1.4s ease-in-out infinite}
 @keyframes cntp{50%{box-shadow:0 0 2px var(--accent)}}
+/* outside the Mac app (Windows, a browser) there's no glass window behind the page: paint a soft backdrop */
+html.solid{background:radial-gradient(40% 30% at 12% 6%,rgba(217,119,87,.26),transparent 70%) fixed,
+radial-gradient(45% 35% at 92% 40%,rgba(58,160,224,.22),transparent 70%) fixed,
+radial-gradient(40% 30% at 30% 92%,rgba(192,112,224,.16),transparent 70%) fixed,#eef0f6;min-height:100%}
+@media(prefers-color-scheme:dark){html.solid{background:radial-gradient(40% 30% at 12% 6%,rgba(217,119,87,.26),transparent 70%) fixed,
+radial-gradient(45% 35% at 92% 40%,rgba(58,160,224,.18),transparent 70%) fixed,
+radial-gradient(40% 30% at 30% 92%,rgba(192,112,224,.14),transparent 70%) fixed,#16161a}}

@@ -11,15 +11,15 @@ Sources
 Note: claude.ai subscription "% of plan used" has no public API, so the meter compares
 your real token counts against limits you set yourself (config.json).
 """
-import json, os, glob, shlex, shutil, sys, threading, time, urllib.request, urllib.error, urllib.parse
+import json, os, glob, re, shlex, shutil, subprocess, sys, threading, time, urllib.request, urllib.error, urllib.parse
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import sessions
+from paths import HERE, DATA, WIN, MAC, FROZEN
 
 PORT = int(os.environ.get("PORT", 8765))
-HERE = os.path.dirname(os.path.abspath(__file__))
-CONFIG = os.path.join(HERE, "config.json")
+CONFIG = os.path.join(DATA, "config.json")
 PROJECTS = os.path.expanduser("~/.claude/projects")
 DEFAULTS = {"limit_5h": 1_000_000, "limit_week": 10_000_000,
             "display": "session",  # what the menu bar shows: session | weekly | both
@@ -45,10 +45,10 @@ WINDOW_HOURS = {"five_hour": 5, "seven_day": 168, "seven_day_opus": 168, "seven_
 LABELS = {"five_hour": "5-hour session", "seven_day": "Weekly (all models)",
           "seven_day_opus": "Weekly (Opus)", "seven_day_sonnet": "Weekly (Sonnet)"}
 ORDER = ["five_hour", "seven_day", "seven_day_opus", "seven_day_sonnet"]
-LIVE_DIR = os.path.join(HERE, "live")  # Claude Code's live numbers, one file per session (see statusline.py)
+LIVE_DIR = os.path.join(DATA, "live")  # Claude Code's live numbers, one file per session (see statusline.py)
 STATUSLINE = os.path.join(HERE, "statusline.py")
 CLAUDE_SETTINGS = os.path.expanduser("~/.claude/settings.json")
-MARK = "# claude-duo"  # tags our status line command in Claude Code's settings
+MARK = "--claude-duo"  # tags our status line command in Claude Code's settings (an ignored argument, fine in any shell)
 actions = []  # UI requests from the popover ("open", "quit"), consumed by the menu bar app
 on_action = lambda: None  # the menu bar app sets this to handle them at once
 state = {"admin_key": os.environ.get("ANTHROPIC_ADMIN_KEY", ""), "menubar_hidden": False}
@@ -58,7 +58,7 @@ PAGES = {"/": "index.html", "/index.html": "index.html", "/compact": "compact.ht
 
 def load_config():
     try:
-        with open(CONFIG) as f:
+        with open(CONFIG, encoding="utf-8") as f:
             return {**DEFAULTS, **json.load(f)}
     except Exception:
         return dict(DEFAULTS)
@@ -90,13 +90,31 @@ def sanitize(d):
 
 APP_PATHS = [os.path.expanduser("~/Applications/Claude Duo.app"), "/Applications/Claude Duo.app"]  # fallbacks
 LAUNCH_PLIST = os.path.expanduser("~/Library/LaunchAgents/local.claude.usage.plist")
+STARTUP_CMD = os.path.join(os.environ.get("APPDATA") or "~", "Microsoft", "Windows", "Start Menu", "Programs", "Startup",
+                           "Claude Duo.cmd")  # Windows: what's in this folder starts when you sign in
 
 
 def login_enabled():
-    return os.path.exists(LAUNCH_PLIST)
+    return os.path.exists(STARTUP_CMD if WIN else LAUNCH_PLIST)
+
+
+def win_launch_args():
+    """How Windows starts Claude Duo: the .exe, or Python without a console window running winapp.py."""
+    if FROZEN:
+        return [sys.executable]
+    pyw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+    return [pyw if os.path.exists(pyw) else sys.executable, os.path.join(HERE, "winapp.py")]
 
 
 def set_login(on):
+    if WIN:
+        if on and not login_enabled():
+            os.makedirs(os.path.dirname(STARTUP_CMD), exist_ok=True)
+            with open(STARTUP_CMD, "w", encoding="utf-8") as f:
+                f.write('@start "" ' + subprocess.list2cmdline(win_launch_args() + ["--background"]) + "\r\n")
+        elif not on and login_enabled():
+            os.remove(STARTUP_CMD)
+        return
     if on and not login_enabled():
         import plistlib
         os.makedirs(os.path.dirname(LAUNCH_PLIST), exist_ok=True)
@@ -108,7 +126,7 @@ def set_login(on):
 
 
 def save_config(cfg):
-    with open(CONFIG, "w") as f:
+    with open(CONFIG, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
 
 
@@ -117,9 +135,10 @@ def parse_ts(s):
 
 
 def project_name(path):
-    """Claude Code names project folders after the path with '/' -> '-'; turn that back into something readable."""
+    """Claude Code names project folders after the path, each character other than a letter or digit -> '-'
+    (/Users/me/app -> -Users-me-app, C:\\Users\\me\\app -> C--Users-me-app); turn that back into something readable."""
     d = os.path.basename(os.path.dirname(path))
-    home = os.path.expanduser("~").replace("/", "-")
+    home = re.sub(r"[^A-Za-z0-9]", "-", os.path.expanduser("~"))
     return (d[len(home):] if d.startswith(home) else d).strip("-").replace("-", "/") or "~"
 
 
@@ -128,7 +147,7 @@ def read_local():
     seen, rows = set(), []
     for path in glob.glob(os.path.join(PROJECTS, "**", "*.jsonl"), recursive=True):
         try:
-            with open(path, errors="ignore") as f:
+            with open(path, encoding="utf-8", errors="ignore") as f:
                 for line in f:
                     if '"usage"' not in line:
                         continue
@@ -256,15 +275,15 @@ def pace(percent, resets_at, window_hours, now=None):
 def read_oauth():
     """Find the login Claude Code already stored (macOS Keychain, else ~/.claude/.credentials.json)."""
     raw = None
-    try:
-        import subprocess
-        raw = subprocess.run(["security", "find-generic-password", "-s", "Claude Code-credentials", "-w"],
-                             capture_output=True, text=True, timeout=10).stdout.strip() or None
-    except Exception:
-        pass
-    if not raw:
+    if MAC:
         try:
-            with open(os.path.expanduser("~/.claude/.credentials.json")) as f:
+            raw = subprocess.run(["security", "find-generic-password", "-s", "Claude Code-credentials", "-w"],
+                                 capture_output=True, text=True, timeout=10).stdout.strip() or None
+        except Exception:
+            pass
+    if not raw:  # Windows and Linux keep it in this file
+        try:
+            with open(os.path.expanduser("~/.claude/.credentials.json"), encoding="utf-8") as f:
                 raw = f.read()
         except OSError:
             return None
@@ -274,13 +293,13 @@ def read_oauth():
         return None
 
 
-PLAN_CACHE_FILE = os.path.join(HERE, "plan_cache.json")
+PLAN_CACHE_FILE = os.path.join(DATA, "plan_cache.json")
 
 
 def _load_plan_cache():
     """Last good plan numbers survive restarts, so a rate-limited start still has something to show."""
     try:
-        with open(PLAN_CACHE_FILE) as f:
+        with open(PLAN_CACHE_FILE, encoding="utf-8") as f:
             saved = json.load(f)
         _plan_cache.update(t=saved["t"], data=saved["data"])
     except Exception:
@@ -321,7 +340,7 @@ def _fetch_plan(now):
     data = {"plan": oauth.get("subscriptionType"), "tier": oauth.get("rateLimitTier"), "limits": limits}
     c.update(t=now, next=now, data=data, error=None, fails=0)
     try:
-        with open(PLAN_CACHE_FILE, "w") as f:
+        with open(PLAN_CACHE_FILE, "w", encoding="utf-8") as f:
             json.dump({"t": now, "data": data}, f)
     except OSError:
         pass
@@ -361,7 +380,7 @@ def live_readings(now=None):
     out = []
     for path in glob.glob(os.path.join(LIVE_DIR, "*.json")):
         try:
-            with open(path) as f:
+            with open(path, encoding="utf-8") as f:
                 d = json.load(f)
             t, rl = float(d["t"]), d["rate_limits"]
         except (OSError, ValueError, KeyError, TypeError):
@@ -436,16 +455,21 @@ def plan_usage():
 
 
 def statusline_cmd():
-    """How Claude Code runs statusline.py. Not sys.executable: inside the app that is the app itself."""
+    """How Claude Code runs statusline.py. On the Mac not sys.executable: inside the app that is the app itself."""
+    if WIN:  # Claude Code runs it through Git Bash or PowerShell: forward slashes work in both
+        args = [sys.executable, "--statusline"] if FROZEN else [
+            next((p for p in (os.path.join(HERE, ".venv", "Scripts", "python.exe"), sys.executable) if os.path.exists(p)),
+                 "python"), "-I", STATUSLINE]
+        return " ".join(f'"{a}"' if " " in a else a for a in (x.replace("\\", "/") for x in args)) + " " + MARK
     py = next((p for p in (os.path.join(HERE, ".venv", "bin", "python3"),
                            os.path.join(sys.base_prefix, "bin", "python3")) if os.path.exists(p)), None) \
         or shutil.which("python3") or "python3"
-    return f"{shlex.quote(py)} -I {shlex.quote(STATUSLINE)}  {MARK}"
+    return f"{shlex.quote(py)} -I {shlex.quote(STATUSLINE)} {MARK}"
 
 
 def _claude_settings():
     try:
-        with open(CLAUDE_SETTINGS) as f:
+        with open(CLAUDE_SETTINGS, encoding="utf-8") as f:
             s = json.load(f)
     except FileNotFoundError:
         return {}
@@ -482,7 +506,7 @@ def set_live_feed(on):
             s.pop("statusLine", None)
     os.makedirs(os.path.dirname(CLAUDE_SETTINGS), exist_ok=True)
     tmp = CLAUDE_SETTINGS + ".claude-duo.tmp"
-    with open(tmp, "w") as f:
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(s, f, indent=2)
         f.write("\n")
     os.replace(tmp, CLAUDE_SETTINGS)

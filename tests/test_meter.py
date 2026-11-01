@@ -232,7 +232,7 @@ class StatusLine(unittest.TestCase):
     def run_line(self, d):
         import subprocess
         raw = d if isinstance(d, str) else json.dumps(d)
-        r = subprocess.run([sys.executable, "-I", self.script], input=raw, capture_output=True, text=True,
+        r = subprocess.run([sys.executable, "-I", self.script], input=raw, capture_output=True, text=True, encoding="utf-8",
                            timeout=20, env={**os.environ, "CLAUDE_DUO_DIR": self.dir})
         self.assertEqual(r.returncode, 0, r.stderr)
         return r.stdout
@@ -319,7 +319,7 @@ class LiveFeedSwitch(unittest.TestCase):
 
     def test_command_uses_a_real_python(self):
         cmd = meter.statusline_cmd()
-        self.assertIn("python3", cmd.split()[0])
+        self.assertIn("python", cmd.split()[0].lower())
         self.assertTrue(cmd.rstrip().endswith(meter.MARK))
 
 
@@ -371,7 +371,7 @@ class Phone(unittest.TestCase):
         _, m, _ = self.get(f"/m/{self.tok}/manifest.json")
         self.assertEqual(json.loads(m)["display"], "standalone")
         for name, magic in (("icon-180.png", b"\x89PNG"), ("icon-512.png", b"\x89PNG"), ("glass.css", b"/*"),
-                            ("ui.js", b"const fmt")):
+                            ("ui.js", b"// the Mac")):
             code, body, _ = self.get(f"/m/{self.tok}/{name}")
             self.assertEqual((code, body[:len(magic)]), (200, magic), name)
         self.assertEqual(self.get(f"/m/{self.tok}/../meter.py")[0], 404)
@@ -412,13 +412,84 @@ class Phone(unittest.TestCase):
     def test_links_and_qr(self):
         meter.save_config({**meter.load_config(), "phone": True})
         st = self.phone.status()
-        self.assertTrue(st["link"].startswith("http://Test-Mac.local:"))
+        links = [st["link"], st.get("ip_link") or ""]
+        self.assertTrue(any(l.startswith("http://Test-Mac.local:") for l in links))  # Windows puts the address first
         self.assertTrue(st["link"].endswith(f"/m/{self.tok}/"))
         if st["qr"] is not None:  # Core Image is there on any Mac
             self.assertTrue(st["qr"].startswith("data:image/png;base64,"))
 
     def test_token_not_settable_from_pages(self):
         self.assertEqual(meter.sanitize({"phone": True, "phone_token": "x"}), {"phone": True})
+
+
+class CrossPlatform(unittest.TestCase):
+    """The parts Windows runs differently: sessions from Claude Code's files, Windows Terminal, the tray icon."""
+    def test_sessions_from_files(self):
+        with tempfile.TemporaryDirectory() as d:
+            now = time.time()
+            for pid, kind, status in ((os.getpid(), "interactive", "busy"), (999999, "interactive", "idle"),
+                                      (os.getppid(), "background", "idle")):
+                with open(os.path.join(d, f"{pid}.json"), "w", encoding="utf-8") as f:
+                    json.dump({"pid": pid, "sessionId": f"s{pid}", "cwd": os.path.join(d, "my app"), "kind": kind,
+                               "status": status, "startedAt": (now - 3725) * 1000}, f)
+            with mock.patch.object(sessions, "SESSION_FILES", d), \
+                 mock.patch.object(sessions, "_alive_claude", side_effect=lambda pid, started: pid == os.getpid()):
+                found = sessions.running_from_files(now)
+        self.assertEqual(len(found), 1)  # the dead one and the background one are left out
+        s = found[0]
+        self.assertEqual((s["pid"], s["name"], s["status"], s["session_id"], s["pane"]),
+                         (os.getpid(), "my app", "busy", f"s{os.getpid()}", None))
+        self.assertEqual(s["elapsed"], "01:02:05")
+
+    def test_elapsed_like_ps(self):
+        self.assertEqual([sessions._etime(x) for x in (59, 125, 3725, 90061)], ["00:59", "02:05", "01:02:05", "1-01:01:01"])
+
+    def test_windows_terminal_command(self):
+        with mock.patch("shutil.which", side_effect=lambda n: "C:/wt.exe" if n == "wt" else None), \
+             mock.patch.object(sessions, "claude_bin", return_value="C:/claude.exe"):
+            cmd = sessions.win_terminal_cmd("C:/code/my app", cont=True)
+            self.assertEqual(cmd, ["C:/wt.exe", "-w", "0", "new-tab", "--title", "my app", "-d", "C:/code/my app",
+                                   "C:/claude.exe", "--continue"])
+            self.assertEqual(sessions.win_terminal_cmd("C:/code", kind="shell")[-2:], ["-d", "C:/code"])
+        with mock.patch("shutil.which", return_value=None), mock.patch.object(sessions, "claude_bin", return_value=None):
+            self.assertEqual(sessions.win_terminal_cmd("C:/code")[:2], ["cmd.exe", "/c"])  # no Windows Terminal
+
+    def test_windows_project_names(self):
+        with mock.patch("os.path.expanduser", return_value="C:\\Users\\me"):
+            self.assertEqual(meter.project_name("x/C--Users-me-Desktop-app/a.jsonl"), "Desktop/app")
+
+    def test_tray_text_and_colour(self):
+        import winapp
+        cfg = {"display": "session", "yellow_at": 50, "red_at": 90}
+        plan = {"limits": [{"key": "five_hour", "label": "5-hour session", "percent": 71.4, "resets_at": None},
+                           {"key": "seven_day", "label": "Weekly (all models)", "percent": 23.0, "resets_at": None}]}
+        text, pct, tip = winapp.summary_line(plan, cfg)
+        self.assertEqual((text, round(pct), winapp.level(pct, cfg)), ("71", 71, "yellow"))
+        self.assertIn("5-hour session: 71%", tip)
+        self.assertLessEqual(len(tip), 127)
+        self.assertEqual(winapp.summary_line(plan, {**cfg, "display": "both"})[0], "71")
+        self.assertEqual(winapp.summary_line({"error": "No login"}, cfg)[:2], ("?", None))
+        self.assertEqual((winapp.level(95, cfg), winapp.level(10, cfg), winapp.level(None, cfg)), ("red", "green", "grey"))
+
+    def test_tray_icon_image(self):
+        try:
+            import PIL  # noqa: F401
+        except ImportError:
+            self.skipTest("Pillow is only needed on Windows")
+        import winapp
+        img = winapp.icon_image("47", "green")
+        self.assertEqual(img.size, (64, 64))
+        self.assertEqual(img.getpixel((32, 4))[:3], winapp.COLORS["green"])
+
+    def test_statusline_entry_point(self):  # what Claude Code runs on Windows: winapp --statusline
+        import subprocess
+        here = os.path.join(os.path.dirname(__file__), "..")
+        with tempfile.TemporaryDirectory() as d:
+            r = subprocess.run([sys.executable, os.path.join(here, "winapp.py"), "--statusline"], capture_output=True,
+                               input=json.dumps({"rate_limits": {"five_hour": {"used_percentage": 12.0}}}), text=True,
+                               encoding="utf-8", timeout=30, env={**os.environ, "CLAUDE_DUO_DIR": d})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("12%", r.stdout)
 
 class Pace(unittest.TestCase):
     def test_projection(self):
@@ -589,6 +660,7 @@ class Http(unittest.TestCase):
         self.assertEqual(c.exception.code, 404)
 
 
+@unittest.skipUnless(sys.platform == "darwin", "the tmux pane grid is Mac-only")
 class Sessions(unittest.TestCase):
     PS = "  3170 04-18:13:55 ttys000  claude\n  4000    00:05 ??       claude\n  4100    01:00 ttys004  zsh\n" \
          "  4200    12:30 ttys005  /Users/x/.local/bin/claude\n"
@@ -728,6 +800,7 @@ class Sessions(unittest.TestCase):
                 self.assertEqual(sessions.recent_folders(), [tmp])
 
 
+@unittest.skipUnless(sys.platform == "darwin", "the menu bar app is the Mac one")
 class AppLoads(unittest.TestCase):
     def test_menubar_imports(self):  # catches crashes at start-up (e.g. clashing Objective-C class names)
         import subprocess

@@ -4,14 +4,18 @@ Each pane of the "claude-grid" tmux session runs one `claude`. Sessions running 
 moved in: they're stopped and resumed (`claude --resume <id>`) in a new pane, so the conversation carries on.
 """
 import glob, json, os, shlex, shutil, signal, subprocess, time
+from datetime import datetime
+from paths import DATA, WIN
 
-CANDIDATES = ["~/.local/bin/claude", "/opt/homebrew/bin/claude", "/usr/local/bin/claude", "~/.claude/local/claude"]
+CANDIDATES = ["~/.local/bin/claude", "/opt/homebrew/bin/claude", "/usr/local/bin/claude", "~/.claude/local/claude"] + (
+    ["~/.local/bin/claude.exe", "~/AppData/Roaming/npm/claude.cmd"] if WIN else [])
 TMUX_CANDIDATES = ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux"]
 PROJECTS = os.path.expanduser("~/.claude/projects")
 SESSION_FILES = os.path.expanduser("~/.claude/sessions")  # <pid>.json, written by each running Claude Code
 GRID = "claude-grid"
-SAVED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "grid.json")  # last saved grid, for restoring
-SCREENS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "grid_screens")  # each terminal pane's text
+SAVED = os.path.join(DATA, "grid.json")  # last saved grid, for restoring
+SCREENS = os.path.join(DATA, "grid_screens")  # each terminal pane's text
+NO_GRID = "The pane grid needs tmux, which Windows doesn't have. New sessions open in Windows Terminal instead."
 SCREEN_LINES = 5000  # scrollback kept per terminal pane
 _path = None
 
@@ -27,12 +31,14 @@ def claude_bin():
 
 
 def tmux_bin():
-    return _find("tmux", TMUX_CANDIDATES)
+    return None if WIN else _find("tmux", TMUX_CANDIDATES)
 
 
 def login_path():
     """PATH from the login shell: apps opened from Finder get a bare /usr/bin:/bin PATH."""
     global _path
+    if WIN:
+        return os.environ.get("PATH", "")
     if _path is None:
         try:
             _path = subprocess.run(["/bin/zsh", "-lc", 'printf %s "$PATH"'], capture_output=True, text=True,
@@ -56,7 +62,7 @@ def clean_env():
 def tmux(*args):
     exe = tmux_bin()
     if not exe:
-        raise ValueError("tmux isn't installed. Install it with: brew install tmux")
+        raise ValueError(NO_GRID if WIN else "tmux isn't installed. Install it with: brew install tmux")
     try:
         return subprocess.run([exe, *args], capture_output=True, text=True, timeout=10, env=clean_env())
     except (OSError, subprocess.SubprocessError) as e:
@@ -85,14 +91,73 @@ def grid_panes():
 
 def session_file(pid):
     try:
-        with open(os.path.join(SESSION_FILES, f"{pid}.json")) as f:
+        with open(os.path.join(SESSION_FILES, f"{pid}.json"), encoding="utf-8") as f:
             return json.load(f)
     except (OSError, ValueError):
         return {}
 
 
+def _etime(seconds):
+    """Elapsed time written the way `ps` does: [[dd-]hh:]mm:ss."""
+    s = max(0, int(seconds))
+    d, s = divmod(s, 86400)
+    h, s = divmod(s, 3600)
+    m, s = divmod(s, 60)
+    return (f"{d}-" if d else "") + (f"{h:02d}:" if d or h else "") + f"{m:02d}:{s:02d}"
+
+
+def _alive_claude(pid, started_ms):
+    """Is this pid still the Claude Code that wrote the session file (not a new process reusing the number)?"""
+    try:
+        import psutil
+        p = psutil.Process(pid)
+        if "claude" not in p.name().lower() and "node" not in p.name().lower():
+            return False
+        return not started_ms or abs(p.create_time() - started_ms / 1000) < 120
+    except ImportError:
+        pass
+    except Exception:  # gone, or not ours to look at
+        return False
+    if WIN:
+        import ctypes
+        h = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return False
+        code = ctypes.c_ulong()
+        ok = ctypes.windll.kernel32.GetExitCodeProcess(h, ctypes.byref(code))
+        ctypes.windll.kernel32.CloseHandle(h)
+        return bool(ok) and code.value == 259  # STILL_ACTIVE
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def running_from_files(now=None):
+    """Interactive Claude sessions from the files Claude Code keeps in ~/.claude/sessions (how Windows finds them)."""
+    now = now or time.time()
+    found = []
+    for path in glob.glob(os.path.join(SESSION_FILES, "*.json")):
+        try:
+            with open(path, encoding="utf-8") as f:
+                info = json.load(f)
+            pid = int(info["pid"])
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if info.get("kind", "interactive") != "interactive" or not _alive_claude(pid, info.get("startedAt")):
+            continue
+        cwd = info.get("cwd") or ""
+        found.append({"pid": pid, "elapsed": _etime(now - (info.get("startedAt") or now * 1000) / 1000), "tty": "",
+                      "cwd": cwd, "name": os.path.basename(cwd.rstrip("/\\")) or "claude",
+                      "session_id": info.get("sessionId"), "status": info.get("status", ""), "pane": None})
+    return sorted(found, key=lambda s: s["pid"])
+
+
 def running():
     """Interactive Claude sessions (ones attached to a terminal): folder, status, and whether they're in the grid."""
+    if WIN:
+        return running_from_files()
     try:
         ps = subprocess.run(["ps", "-axo", "pid=,etime=,tty=,comm="], capture_output=True, text=True,
                             timeout=5).stdout
@@ -181,11 +246,29 @@ def add_pane(cwd, args, claude=True, show=True, replay=None):
         show_grid()
 
 
+def win_terminal_cmd(cwd, cont=False, kind="claude"):
+    """The command that opens Claude Code (or a plain terminal) in a new Windows Terminal tab, or a console window."""
+    claude = [claude_bin() or "claude"] + (["--continue"] if cont else []) if kind != "shell" else []
+    wt = shutil.which("wt")
+    if wt:
+        return [wt, "-w", "0", "new-tab", "--title", os.path.basename(cwd.rstrip("/\\")) or cwd, "-d", cwd] + claude
+    return ["cmd.exe", "/c", "start", "", "/D", cwd, "cmd.exe", "/k"] + (claude or ["echo", "Claude Duo"])
+
+
 def new_session(cwd, cont=False, kind="claude"):
     """kind "claude" starts Claude Code; "shell" opens a plain terminal pane."""
     cwd = os.path.expanduser((cwd or "").strip() or "~")
     if not os.path.isdir(cwd):
         raise ValueError(f"Folder not found: {cwd}")
+    if WIN:
+        if kind != "shell" and not claude_bin():
+            raise ValueError("Claude Code isn't installed. See https://claude.com/claude-code")
+        try:
+            subprocess.Popen(win_terminal_cmd(cwd, cont, kind), cwd=cwd, close_fds=True,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        except OSError as e:
+            raise ValueError(f"Couldn't open a terminal: {e}")
+        return {"ok": True}
     add_pane(cwd, ["--continue"] if cont else [], claude=kind != "shell")
     return {"ok": True}
 
@@ -285,12 +368,12 @@ def save_screen(pane):
     os.makedirs(SCREENS, exist_ok=True)
     path = os.path.join(SCREENS, pane.lstrip("%") + ".txt")
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             if f.read() == text:  # unchanged: don't rewrite it every few seconds
                 return path
     except OSError:
         pass
-    with open(path + ".tmp", "w") as f:
+    with open(path + ".tmp", "w", encoding="utf-8") as f:
         f.write(text)
     os.replace(path + ".tmp", path)
     return path
@@ -305,7 +388,7 @@ def save_grid():
         return
     if snap:
         tmp = SAVED + ".tmp"
-        with open(tmp, "w") as f:
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(snap, f, indent=1)
         os.replace(tmp, SAVED)
         keep = {p.get("screen") for p in snap["panes"]}
@@ -327,7 +410,7 @@ def restore_grid():
     if not tmux_bin() or grid_exists():
         return 0
     try:
-        with open(SAVED) as f:
+        with open(SAVED, encoding="utf-8") as f:
             snap = json.load(f)
     except (OSError, ValueError):
         return 0
@@ -407,6 +490,8 @@ end run
 
 
 def focus(pid):
+    if WIN:
+        return False  # Windows can't bring one terminal tab to the front from outside
     s = next((s for s in running() if s["pid"] == pid), None)
     if not s:
         return False

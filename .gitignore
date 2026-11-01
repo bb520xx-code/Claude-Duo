@@ -11,3 +11,7 @@ __pycache__/
 launcher/Claude Duo
 *.app/
 .DS_Store
+claude-duo.ico
+build/
+dist/
+*.spec

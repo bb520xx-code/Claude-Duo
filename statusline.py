@@ -10,7 +10,10 @@ before Claude Duo, if any, otherwise your usage.
 Must be quick and must never fail: Claude Code runs it after every message."""
 import json, os, subprocess, sys, time
 
-HERE = os.environ.get("CLAUDE_DUO_DIR") or os.path.dirname(os.path.abspath(__file__))
+if getattr(sys, "frozen", False):  # inside Claude Duo.exe on Windows: data lives in %APPDATA%\\Claude Duo
+    HERE = os.environ.get("CLAUDE_DUO_DIR") or os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "Claude Duo")
+else:
+    HERE = os.environ.get("CLAUDE_DUO_DIR") or os.path.dirname(os.path.abspath(__file__))
 LIVE = os.path.join(HERE, "live")
 CONFIG = os.path.join(HERE, "config.json")
 
@@ -27,21 +30,21 @@ def save(d):
                      ctx.get("total_output_tokens")], sort_keys=True)
     path = os.path.join(LIVE, sid + ".json")
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             if json.load(f).get("fp") == fp:
                 return  # nothing new
     except (OSError, ValueError, AttributeError):
         pass
     os.makedirs(LIVE, exist_ok=True)
     tmp = f"{path}.{os.getpid()}.tmp"
-    with open(tmp, "w") as f:
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump({"t": time.time(), "fp": fp, "rate_limits": rl}, f)
     os.replace(tmp, path)  # atomic: the menu bar never reads half a file
 
 
 def config():
     try:
-        with open(CONFIG) as f:
+        with open(CONFIG, encoding="utf-8") as f:
             return json.load(f)
     except (OSError, ValueError):
         return {}
@@ -60,6 +63,11 @@ def usage_line(d, cfg):
 
 
 def main():
+    for stream in (sys.stdin, sys.stdout):  # Claude Code speaks UTF-8; Windows consoles default to something else
+        try:
+            stream.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError):
+            pass
     raw = sys.stdin.read()
     try:
         d = json.loads(raw)
@@ -74,9 +82,10 @@ def main():
     cfg = config()
     prev = cfg.get("statusline_prev") or {}
     cmd = prev.get("command") if isinstance(prev, dict) else None
-    if cmd and "statusline.py" not in cmd:  # the status line you had before: keep showing it
+    if cmd and "statusline.py" not in cmd and "--claude-duo" not in cmd:  # the one you had before: keep showing it
         try:
-            r = subprocess.run(cmd, shell=True, input=raw, capture_output=True, text=True, timeout=10)
+            r = subprocess.run(cmd, shell=True, input=raw, capture_output=True, text=True, timeout=10,
+                               encoding="utf-8", errors="replace")
             sys.stdout.write(r.stdout)
             return
         except Exception:

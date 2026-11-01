@@ -7,9 +7,10 @@ full screen like an app."""
 import base64, hmac, json, os, secrets, socket, subprocess, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import meter, sessions
+from paths import HERE, MAC, WIN
 
 PORT = meter.PORT + 1
-DIR = os.path.join(meter.HERE, "iphone")
+DIR = os.path.join(HERE, "iphone")
 FILES = {"": ("index.html", "text/html; charset=utf-8"), "index.html": ("index.html", "text/html; charset=utf-8"),
          "manifest.json": ("manifest.json", "application/manifest+json"),
          "icon-180.png": ("icon-180.png", "image/png"), "icon-512.png": ("icon-512.png", "image/png"),
@@ -30,12 +31,14 @@ def token(new=False):
 
 
 def host():
-    """This Mac's Bonjour name, which iPhones on the same Wi-Fi can reach as <name>.local."""
-    try:
-        name = subprocess.run(["scutil", "--get", "LocalHostName"], capture_output=True, text=True,
-                              timeout=5).stdout.strip()
-    except Exception:
-        name = ""
+    """This computer's name; a Mac's Bonjour name is reachable from iPhones on the same Wi-Fi as <name>.local."""
+    name = ""
+    if MAC:
+        try:
+            name = subprocess.run(["scutil", "--get", "LocalHostName"], capture_output=True, text=True,
+                                  timeout=5).stdout.strip()
+        except Exception:
+            pass
     return name or socket.gethostname().split(".")[0]
 
 
@@ -54,11 +57,22 @@ def lan_ip():
 
 def links():
     t, ip = token(), lan_ip()
-    return {"link": f"http://{host()}.local:{PORT}/m/{t}/", "ip_link": f"http://{ip}:{PORT}/m/{t}/" if ip else None}
+    named = f"http://{host()}.local:{PORT}/m/{t}/"
+    by_ip = f"http://{ip}:{PORT}/m/{t}/" if ip else None
+    if WIN and by_ip:  # Windows PCs don't reliably answer to <name>.local, so the QR code uses the address
+        return {"link": by_ip, "ip_link": named}
+    return {"link": named, "ip_link": by_ip}
 
 
 def qr_data_url(text):
-    """A QR code (via macOS Core Image) that the iPhone's camera can scan, as a data: URL."""
+    """A QR code that the iPhone's camera can scan, as a data: URL (segno where installed, else macOS Core Image)."""
+    try:
+        import segno
+        return segno.make(text, error="m").png_data_uri(scale=8, border=2)
+    except ImportError:
+        pass
+    except Exception:
+        return None
     try:
         import AppKit, Foundation, Quartz
         f = Quartz.CIFilter.filterWithName_("CIQRCodeGenerator")
