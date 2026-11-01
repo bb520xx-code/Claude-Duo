@@ -85,13 +85,11 @@ class App:
         meter.on_action = self.drain
         self.main = webview.create_window("Claude Duo", self.base + "/", width=1000, height=700, hidden=True,
                                           min_size=(640, 480))
-        self.pop = webview.create_window("Claude Duo", self.base + "/compact", width=300, height=640, hidden=True,
-                                         on_top=True, min_size=(280, 400))
-        for w in (self.main, self.pop):
-            w.events.closing += (lambda win: (lambda: self.hide(win)))(w)  # ✕ hides; Quit really quits
+        self.pop = None  # made on first use: a second window created hidden never finishes starting on Windows
+        self.main.events.closing += lambda: self.hide(self.main)  # ✕ hides; Quit really quits
         Item = pystray.MenuItem
         self.icon = pystray.Icon("Claude Duo", icon_image("…", "grey"), "Claude Duo", menu=pystray.Menu(
-            Item("Claude Duo", lambda: self.show(self.pop), default=True),  # a click on the icon
+            Item("Claude Duo", lambda: self.popup(), default=True),  # a click on the icon
             Item("Dashboard", lambda: self.show(self.main, "/")),
             Item("Sessions", lambda: self.show(self.main, "/sessions")),
             Item("Settings", lambda: self.show(self.main, "/settings")),
@@ -103,6 +101,14 @@ class App:
     def hide(self, win):
         win.hide()
         return False  # cancel the close
+
+    def popup(self):
+        if self.pop is None:
+            self.pop = self.webview.create_window("Claude Duo", self.base + "/compact", width=300, height=640,
+                                                  on_top=True, min_size=(280, 400))
+            self.pop.events.closing += lambda: self.hide(self.pop)
+        else:
+            self.show(self.pop)
 
     def show(self, win, path=None):
         win.show()  # first: a window that was never shown can't load a page yet
@@ -136,7 +142,7 @@ class App:
             elif isinstance(act, str) and act in meter.LINKS:
                 webbrowser.open(meter.LINKS[act])
                 continue  # a link opens the browser; the popup stays
-            if act != "diagnose":
+            if act != "diagnose" and self.pop is not None:
                 self.pop.hide()
 
     def choose_folder(self, cont, kind):
@@ -194,9 +200,13 @@ class App:
         lines = []
         try:
             for path, want in (("/", "Claude Duo"), ("/settings", "Claude Duo"), ("/compact", "Claude Duo")):
-                win = self.pop if path == "/compact" else self.main
-                self.show(win, path)
-                time.sleep(4)
+                if path == "/compact":
+                    self.popup()
+                    win = self.pop
+                else:
+                    win = self.main
+                    self.show(win, path)
+                time.sleep(5)
                 title = win.evaluate_js("document.title") or ""
                 errs = win.evaluate_js("JSON.stringify(window.__errs||[])")
                 solid = win.evaluate_js("document.documentElement.classList.contains('solid')")
@@ -222,7 +232,7 @@ class App:
         threading.Thread(target=self.worker, daemon=True).start()
         threading.Thread(target=self.watch_live, daemon=True).start()
         if show and not guitest:
-            threading.Timer(1.5, lambda: self.show(self.pop)).start()
+            threading.Timer(1.5, self.popup).start()
         # windows need the main thread; private_mode off keeps each page's remembered tab and settings
         self.webview.start((lambda: self.guitest(guitest)) if guitest else None,
                            private_mode=False, storage_path=os.path.join(DATA, "webview"))
