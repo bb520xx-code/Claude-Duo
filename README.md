@@ -1,6 +1,6 @@
 # Claude Duo
 
-A macOS menu bar app for people who live in [Claude Code](https://claude.com/claude-code), now with an iPhone version.
+A menu bar app for people who live in [Claude Code](https://claude.com/claude-code), for macOS and Windows, with an iPhone version.
 
 ## New: Claude Duo on your iPhone
 
@@ -20,6 +20,23 @@ Xcode, nothing to install on the phone.
 - **Safe**: look-only, behind a secret link, and only on your own network.
 
 [Set it up in a minute →](#iphone-app) *(Screenshots use demo data.)*
+
+## On Windows (beta)
+
+**Download `Claude-Duo-Windows.exe` from the [Releases page](https://github.com/bb520xx-code/Claude-Duo/releases)** and run it. Nothing else to install.
+
+- Your plan % sits in the **system tray** by the clock, in green, yellow or red. Hover for the reset times,
+  click for the popup. If you don't see it, drag it out of the **^** overflow.
+- The same popup, dashboard, Settings, live numbers, notifications and iPhone app as on the Mac.
+- **Sessions** lists your Claude Code sessions and opens new ones in **Windows Terminal**. The pane grid is
+  Mac-only (it needs tmux).
+- The first time, Windows may warn about an unknown publisher: choose **More info → Run anyway**. Turning on
+  the iPhone app makes Windows ask whether to allow it on your network: allow **private networks**.
+- From the code instead: install Python 3.12, then in this folder run
+  `powershell -ExecutionPolicy Bypass -File .\install.ps1` (adds Claude Duo to the Start menu).
+
+Every change is tested on Windows by GitHub (`.github/workflows/windows.yml`), including opening the real
+windows and tray icon. A version tag such as `v2.1.0` publishes the `.exe` on the Releases page.
 
 ## On your Mac
 
