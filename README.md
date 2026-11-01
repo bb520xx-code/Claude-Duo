@@ -21,6 +21,15 @@ Xcode, nothing to install on the phone.
 
 [Set it up in a minute →](#iphone-app) *(Screenshots use demo data.)*
 
+## Download
+
+Two files on the [Releases page](https://github.com/bb520xx-code/Claude-Duo/releases): pick the one for your computer.
+
+- **Mac** (Apple silicon): `Claude-Duo-Mac.zip`. Open it, drag **Claude Duo** to Applications, open it.
+  The first time, macOS says it can't check the app: open **System Settings → Privacy & Security** and click
+  **Open Anyway**. Nothing else to install (the pane grid needs tmux: `brew install tmux`).
+- **Windows**: `Claude-Duo-Windows.exe`. Run it (details below).
+
 ## On Windows (beta)
 
 **Download `Claude-Duo-Windows.exe` from the [Releases page](https://github.com/bb520xx-code/Claude-Duo/releases)** and run it. Nothing else to install.
@@ -35,8 +44,9 @@ Xcode, nothing to install on the phone.
 - From the code instead: install Python 3.12, then in this folder run
   `powershell -ExecutionPolicy Bypass -File .\install.ps1` (adds Claude Duo to the Start menu).
 
-Every change is tested on Windows by GitHub (`.github/workflows/windows.yml`), including opening the real
-windows and tray icon. A version tag such as `v2.1.0` publishes the `.exe` on the Releases page.
+Every change is built and tested on Windows and on a Mac by GitHub (`.github/workflows/build.yml`), including
+opening the real Windows windows and tray icon. A version tag such as `v2.1.0` publishes both downloads on the
+Releases page.
 
 ## On your Mac
 
@@ -66,6 +76,8 @@ windows and tray icon. A version tag such as `v2.1.0` publishes the `.exe` on th
 - Python 3.14 and tmux (the installer adds them via Homebrew)
 
 ## Install
+
+Easiest: the Mac download above. Or from the code:
 
 ```sh
 git clone https://github.com/bb520xx-code/Claude-Duo.git
@@ -110,6 +122,8 @@ busiest hours, top projects, models, and which Claude sessions are working or wa
   A Home Screen web app needs none of that, and its code ships here in `iphone/` and `phone.py`.
 
 ## Develop
+
+Build the Mac download yourself with `./build-mac.sh python3` (needs `pip install -r requirements.txt segno pyinstaller`).
 
 ```sh
 cd ~/ClaudeUsage
