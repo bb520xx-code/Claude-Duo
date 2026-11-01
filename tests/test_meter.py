@@ -478,6 +478,13 @@ class CrossPlatform(unittest.TestCase):
         with mock.patch("os.path.expanduser", return_value="C:\\Users\\me"):
             self.assertEqual(meter.project_name("x/C--Users-me-Desktop-app/a.jsonl"), "Desktop/app")
 
+
+WINAPP = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "winapp.py")
+
+
+@unittest.skipUnless(os.path.exists(WINAPP), "the Windows app isn't in this copy (Mac only)")
+class WindowsApp(unittest.TestCase):
+    """The Windows tray app (winapp.py), on GitHub; a Mac-only copy leaves it out."""
     def test_tray_text_and_colour(self):
         import winapp
         cfg = {"display": "session", "yellow_at": 50, "red_at": 90}
@@ -510,6 +517,7 @@ class CrossPlatform(unittest.TestCase):
                                encoding="utf-8", timeout=30, env={**os.environ, "CLAUDE_DUO_DIR": d})
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("12%", r.stdout)
+
 
 class Pace(unittest.TestCase):
     def test_projection(self):
