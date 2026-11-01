@@ -26,8 +26,8 @@ A macOS menu bar app for people who live in [Claude Code](https://claude.com/cla
 ## Install
 
 ```sh
-git clone https://github.com/bb520xx-code/claude-duo.git
-cd claude-duo
+git clone https://github.com/bb520xx-code/Claude-Duo.git
+cd Claude-Duo
 ./install.sh
 open ~/Applications/"Claude Duo.app"
 ```
