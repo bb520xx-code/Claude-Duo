@@ -1,4 +1,4 @@
-import json, os, sys, tempfile, threading, time, unittest, urllib.error, urllib.request
+import json, os, re, sys, tempfile, threading, time, unittest, urllib.error, urllib.request
 from datetime import datetime, timedelta, timezone
 from http.server import ThreadingHTTPServer
 from unittest import mock
@@ -74,8 +74,12 @@ class PlanUsage(unittest.TestCase):
         d = tempfile.TemporaryDirectory()
         self.addCleanup(d.cleanup)
         mock.patch.object(meter, "PLAN_CACHE_FILE", os.path.join(d.name, "pc.json")).start()
+        mock.patch.object(meter, "LIVE_DIR", os.path.join(d.name, "live")).start()
+        mock.patch.object(meter, "CONFIG", os.path.join(d.name, "c.json")).start()
+        mock.patch.object(meter, "CLAUDE_SETTINGS", os.path.join(d.name, "cs.json")).start()
         self.addCleanup(mock.patch.stopall)
-        meter._plan_cache.update(t=0, until=0, data=None, error=None)
+        self.dir = d.name
+        meter._plan_cache.update(t=0, next=0, data=None, error=None, fails=0, plan=None)
 
     def fake_resp(self, payload):
         r = mock.MagicMock()
@@ -101,16 +105,72 @@ class PlanUsage(unittest.TestCase):
         with mock.patch.object(meter, "read_oauth", return_value=oauth), \
              mock.patch("urllib.request.urlopen", return_value=self.fake_resp(payload)):
             good = meter.plan_usage()
-        meter._plan_cache["until"] = 0  # cache expired
+        self.assertNotIn("stale", good)
+        meter._plan_cache["t"] -= 600  # that answer is now 10 minutes old
         err = urllib.error.HTTPError("u", 429, "Too Many", {"retry-after": "0"}, None)
         with mock.patch.object(meter, "read_oauth", return_value=oauth), \
              mock.patch("urllib.request.urlopen", side_effect=err) as uo:
             p = meter.plan_usage()
-            p2 = meter.plan_usage()      # now backing off: no second request
-        self.assertTrue(p["stale"])
-        self.assertEqual(p["limits"], good["limits"])
+            meter.plan_usage()           # now backing off: no second request
+        self.assertTrue(p["stale"])      # and it says so, instead of passing old numbers off as current
+        self.assertIn("rate-limiting", p["note"])
+        self.assertEqual([l["percent"] for l in p["limits"]], [10.0])
         self.assertEqual(uo.call_count, 1)
-        self.assertGreaterEqual(meter._plan_cache["until"] - time.time(), 290)
+        self.assertAlmostEqual(meter._plan_cache["next"] - time.time(), 120, delta=5)
+
+    def test_backoff_doubles(self):
+        err = urllib.error.HTTPError("u", 429, "Too Many", {"retry-after": "0"}, None)
+        waits = []
+        with mock.patch.object(meter, "read_oauth", return_value={"accessToken": "t"}), \
+             mock.patch("urllib.request.urlopen", side_effect=err):
+            for _ in range(5):
+                meter._plan_cache["next"] = 0
+                meter.plan_usage()
+                waits.append(round(meter._plan_cache["next"] - time.time(), -1))
+        self.assertEqual(waits, [120, 240, 480, 900, 900])
+
+    def test_retry_after_is_respected(self):
+        err = urllib.error.HTTPError("u", 429, "Too Many", {"retry-after": "42"}, None)
+        with mock.patch.object(meter, "read_oauth", return_value={"accessToken": "t"}), \
+             mock.patch("urllib.request.urlopen", side_effect=err):
+            meter.plan_usage()
+        self.assertAlmostEqual(meter._plan_cache["next"] - time.time(), 42, delta=3)
+
+    def write_live(self, sid, pct, resets, t=None, week=None):
+        os.makedirs(os.path.join(self.dir, "live"), exist_ok=True)
+        rl = {"five_hour": {"used_percentage": pct, "resets_at": resets}}
+        if week is not None:
+            rl["seven_day"] = {"used_percentage": week, "resets_at": resets + 86400}
+        with open(os.path.join(self.dir, "live", sid + ".json"), "w") as f:
+            json.dump({"t": t or time.time(), "fp": "x", "rate_limits": rl}, f)
+
+    def test_live_numbers_win_and_skip_the_request(self):
+        """The bug: Anthropic said 0 % at the start of the session, then rate-limited us while you used 7 %."""
+        end = time.time() + 4 * 3600
+        meter._plan_cache.update(t=time.time() - 100, data={"plan": "pro", "limits": [
+            {"key": "five_hour", "label": "5-hour session", "percent": 0.0,
+             "resets_at": datetime.fromtimestamp(end, timezone.utc).isoformat()}]})
+        self.write_live("a", 7.0, int(end), week=15.0)
+        with mock.patch("urllib.request.urlopen") as uo:
+            p = meter.plan_usage()
+        uo.assert_not_called()           # live numbers are fresh, so Anthropic's rate limit is left alone
+        by = {l["key"]: l for l in p["limits"]}
+        self.assertEqual((by["five_hour"]["percent"], by["seven_day"]["percent"]), (7.0, 15.0))
+        self.assertEqual(by["five_hour"]["source"], "claude_code")
+        self.assertTrue(p["live"])
+        self.assertNotIn("stale", p)
+
+    def test_live_reset_time_is_unix_seconds(self):
+        end = int(time.time()) + 3600
+        self.write_live("a", 3.0, end)
+        l = meter.live_readings()[0]
+        self.assertEqual(meter.parse_ts(l["resets_at"]).timestamp(), end)
+
+    def test_old_live_files_are_removed(self):
+        self.write_live("old", 50.0, int(time.time()) - 86400, t=time.time() - 9 * 86400)
+        self.assertEqual(meter.live_readings(), [])
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "live", "old.json")))
+
 
     def test_rate_limit_without_data_reports_error(self):
         err = urllib.error.HTTPError("u", 429, "Too Many", {}, None)
@@ -125,6 +185,142 @@ class PlanUsage(unittest.TestCase):
     def test_expired_login(self):
         with mock.patch.object(meter, "read_oauth", return_value={"accessToken": "t", "expiresAt": 1}):
             self.assertIn("expired", meter.plan_usage()["error"])
+
+
+class Merge(unittest.TestCase):
+    def r(self, pct, end, t, key="five_hour", source="claude_code"):
+        iso = datetime.fromtimestamp(end, timezone.utc).isoformat() if end else None
+        return {"key": key, "percent": pct, "resets_at": iso, "t": t, "source": source}
+
+    def test_highest_reading_in_the_window(self):
+        now, end = time.time(), time.time() + 3600
+        # an idle session redrawn just now still remembers 3 %; the busy one saw 7 % a bit earlier
+        m = meter.merge_limits([self.r(3, end, now), self.r(7, end + 0.4, now - 30), self.r(0, end, now - 600)], now)
+        self.assertEqual(m[0]["percent"], 7)
+        self.assertEqual(m[0]["t"], now)
+
+    def test_reset_window_is_zero(self):
+        now = time.time()
+        m = meter.merge_limits([self.r(88, now - 60, now - 300)], now)
+        self.assertEqual((m[0]["percent"], m[0]["resets_at"]), (0.0, None))
+
+    def test_new_window_beats_old_one(self):
+        now = time.time()
+        m = meter.merge_limits([self.r(90, now - 60, now - 400), self.r(4, now + 5 * 3600, now - 10)], now)
+        self.assertEqual(m[0]["percent"], 4)
+
+    def test_undated_reading_after_reset(self):
+        now = time.time()
+        m = meter.merge_limits([self.r(60, now - 600, now - 900), self.r(2, None, now - 5, source="anthropic")], now)
+        self.assertEqual(m[0]["percent"], 2)
+
+    def test_order_and_labels(self):
+        now = time.time()
+        m = meter.merge_limits([self.r(1, now + 99, now, "seven_day_opus"), self.r(2, now + 99, now, "seven_day"),
+                                self.r(3, now + 99, now)], now)
+        self.assertEqual([x["key"] for x in m], ["five_hour", "seven_day", "seven_day_opus"])
+        self.assertEqual(m[2]["label"], "Weekly (Opus)")
+
+
+class StatusLine(unittest.TestCase):
+    def setUp(self):
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        self.dir = d.name
+        self.script = os.path.join(os.path.dirname(__file__), "..", "statusline.py")
+
+    def run_line(self, d):
+        import subprocess
+        raw = d if isinstance(d, str) else json.dumps(d)
+        r = subprocess.run([sys.executable, "-I", self.script], input=raw, capture_output=True, text=True,
+                           timeout=20, env={**os.environ, "CLAUDE_DUO_DIR": self.dir})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout
+
+    def snapshot(self, api_ms=1000, pct=7.0):
+        return {"session_id": "abc-123", "cost": {"total_api_duration_ms": api_ms},
+                "context_window": {"total_input_tokens": 10, "total_output_tokens": 5},
+                "rate_limits": {"five_hour": {"used_percentage": pct, "resets_at": 1893456000},
+                                "seven_day": {"used_percentage": 15.0, "resets_at": 1893800000}}}
+
+    def saved(self):
+        with open(os.path.join(self.dir, "live", "abc-123.json")) as f:
+            return json.load(f)
+
+    def test_saves_live_numbers_and_prints_usage(self):
+        out = re.sub(r"\x1b\[[0-9;]*m", "", self.run_line(self.snapshot()))  # without the colours
+        self.assertIn("7% session", out)
+        self.assertIn("15% week", out)
+        self.assertEqual(self.saved()["rate_limits"]["five_hour"]["used_percentage"], 7.0)
+
+    def test_redraw_is_not_news(self):
+        self.run_line(self.snapshot())
+        t1 = self.saved()["t"]
+        time.sleep(0.05)
+        self.run_line(self.snapshot())              # same reply, just redrawn
+        self.assertEqual(self.saved()["t"], t1)
+        self.run_line(self.snapshot(api_ms=2500))   # a new reply from Anthropic
+        self.assertGreater(self.saved()["t"], t1)
+
+    def test_keeps_your_status_line(self):
+        with open(os.path.join(self.dir, "config.json"), "w") as f:
+            json.dump({"statusline_prev": {"type": "command", "command": "cat > /dev/null; echo mine"}}, f)
+        self.assertEqual(self.run_line(self.snapshot()).strip(), "mine")
+        self.assertTrue(os.path.exists(os.path.join(self.dir, "live", "abc-123.json")))
+
+    def test_bad_input_never_breaks_claude(self):
+        self.run_line("not json")
+        self.run_line({"rate_limits": None})
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "live")))
+
+
+class LiveFeedSwitch(unittest.TestCase):
+    def setUp(self):
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        self.cs = os.path.join(d.name, "settings.json")
+        for name, val in (("CLAUDE_SETTINGS", self.cs), ("CONFIG", os.path.join(d.name, "c.json"))):
+            mock.patch.object(meter, name, val).start()
+        self.addCleanup(mock.patch.stopall)
+
+    def read(self):
+        with open(self.cs) as f:
+            return json.load(f)
+
+    def test_on_and_off_keeps_your_status_line(self):
+        mine = {"type": "command", "command": "~/.claude/mine.sh", "padding": 1}
+        with open(self.cs, "w") as f:
+            json.dump({"model": "opus", "statusLine": mine}, f)
+        meter.set_live_feed(True)
+        s = self.read()
+        self.assertTrue(meter.live_feed_enabled())
+        self.assertIn("statusline.py", s["statusLine"]["command"])
+        self.assertEqual((s["model"], s["statusLine"]["padding"]), ("opus", 1))
+        self.assertEqual(meter.load_config()["statusline_prev"], mine)
+        meter.set_live_feed(True)        # twice is harmless: yours is still remembered
+        self.assertEqual(meter.load_config()["statusline_prev"], mine)
+        meter.set_live_feed(False)
+        self.assertEqual(self.read(), {"model": "opus", "statusLine": mine})
+        self.assertFalse(meter.live_feed_enabled())
+
+    def test_without_a_previous_status_line(self):
+        meter.set_live_feed(True)
+        self.assertTrue(meter.live_feed_enabled())
+        meter.set_live_feed(False)
+        self.assertEqual(self.read(), {})
+
+    def test_broken_settings_file_is_never_overwritten(self):
+        with open(self.cs, "w") as f:
+            f.write("{oops")
+        with self.assertRaises(ValueError):
+            meter.set_live_feed(True)
+        with open(self.cs) as f:
+            self.assertEqual(f.read(), "{oops")
+
+    def test_command_uses_a_real_python(self):
+        cmd = meter.statusline_cmd()
+        self.assertIn("python3", cmd.split()[0])
+        self.assertTrue(cmd.rstrip().endswith(meter.MARK))
 
 
 class Pace(unittest.TestCase):
@@ -164,7 +360,9 @@ class Http(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
         cls.patches = [mock.patch.object(meter, "CONFIG", os.path.join(cls.tmp.name, "c.json")),
-                       mock.patch.object(meter, "LAUNCH_PLIST", os.path.join(cls.tmp.name, "l.plist"))]
+                       mock.patch.object(meter, "LAUNCH_PLIST", os.path.join(cls.tmp.name, "l.plist")),
+                       mock.patch.object(meter, "CLAUDE_SETTINGS", os.path.join(cls.tmp.name, "cs.json")),
+                       mock.patch.object(meter, "LIVE_DIR", os.path.join(cls.tmp.name, "live"))]
         for p in cls.patches:
             p.start()
         cls.srv = ThreadingHTTPServer(("127.0.0.1", 0), meter.H)
@@ -179,8 +377,20 @@ class Http(unittest.TestCase):
         cls.tmp.cleanup()
 
     def post(self, path, d):
-        with urllib.request.urlopen(urllib.request.Request(self.base + path, data=json.dumps(d).encode())) as r:
+        req = urllib.request.Request(self.base + path, data=json.dumps(d).encode(), headers={"X-Claude-Usage": "1"})
+        with urllib.request.urlopen(req) as r:
             return json.load(r)
+
+    def test_settings_need_app_header(self):  # another website can't change settings (or Claude Code's)
+        req = urllib.request.Request(self.base + "/api/settings", data=json.dumps({"live_feed": True}).encode())
+        with self.assertRaises(urllib.error.HTTPError) as e:
+            urllib.request.urlopen(req)
+        self.assertEqual(e.exception.code, 403)
+        self.assertFalse(meter.live_feed_enabled())
+
+    def test_live_feed_via_settings_api(self):
+        self.assertTrue(self.post("/api/settings", {"live_feed": True})["live_feed"])
+        self.assertFalse(self.post("/api/settings", {"live_feed": False})["live_feed"])
 
     def test_settings_api(self):
         r = self.post("/api/settings", {"display": "weekly", "notify_at": [70], "login": True, "bad": 1})

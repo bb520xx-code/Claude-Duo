@@ -3,6 +3,7 @@ config.json
 plan_cache.json
 grid.json
 grid_screens/
+live/
 status.log
 # build output
 .venv/

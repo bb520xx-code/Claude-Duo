@@ -3,6 +3,9 @@ const LV={yellow_at:50,red_at:90};  // colour thresholds, loaded from Settings
 const col=p=>p>=LV.red_at?'var(--bad)':p>=LV.yellow_at?'var(--yel)':'var(--ok)';
 fetch('/api/settings').then(r=>r.json()).then(c=>{for(const k in LV)if(c[k])LV[k]=c[k]}).catch(()=>{});
 const rs=iso=>{if(!iso)return'—';const m=Math.max(0,Math.round((new Date(iso)-new Date())/60000));return 'in '+(m>=1440?Math.floor(m/1440)+'d '+Math.floor(m%1440/60)+'h':Math.floor(m/60)+'h '+m%60+'m')};
+const since=t=>{const s=Math.max(0,Math.round(Date.now()/1000-t));return s<10?'just now':s<60?s+' s ago':s<3600?Math.round(s/60)+' min ago':Math.round(s/3600)+' h ago'};
+// how fresh the plan % is: live from Claude Code, or old (and why)
+function freshness(p){if(!p.updated)return'';const a=since(p.updated);if(!p.stale)return(p.live?'<b style="color:var(--ok)">●</b> Live · ':'')+'updated '+a;return'<span style="color:var(--warn)">⚠︎ Updated '+a+(p.live_feed?(p.note&&/rate/.test(p.note)?' · Anthropic is limiting checks':''):' · turn on Live numbers in ⚙')+'</span>'}
 const act=n=>fetch('/api/action',{method:'POST',body:JSON.stringify({name:n})});
 function ring(p,size,w,label){
   const r=(size-w)/2,c=2*Math.PI*r,v=Math.min(100,Math.max(0,p)),k=col(v);

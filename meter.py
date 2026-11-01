@@ -11,7 +11,7 @@ Sources
 Note: claude.ai subscription "% of plan used" has no public API, so the meter compares
 your real token counts against limits you set yourself (config.json).
 """
-import json, os, glob, time, urllib.request, urllib.error, urllib.parse
+import json, os, glob, shlex, shutil, sys, threading, time, urllib.request, urllib.error, urllib.parse
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -40,7 +40,15 @@ LINKS = {"credits": "https://claude.ai/settings/usage",       # extra usage / cr
          "web_download": "https://claude.ai/download", "web_help": "https://support.claude.com",
          "web_status": "https://status.anthropic.com", "web_docs": "https://docs.claude.com",
          "web_console": "https://platform.claude.com"}
-WINDOW_HOURS = {"five_hour": 5, "seven_day": 24 * 7}
+WINDOW_HOURS = {"five_hour": 5, "seven_day": 168, "seven_day_opus": 168, "seven_day_sonnet": 168,
+                "seven_day_oauth_apps": 168}
+LABELS = {"five_hour": "5-hour session", "seven_day": "Weekly (all models)",
+          "seven_day_opus": "Weekly (Opus)", "seven_day_sonnet": "Weekly (Sonnet)"}
+ORDER = ["five_hour", "seven_day", "seven_day_opus", "seven_day_sonnet"]
+LIVE_DIR = os.path.join(HERE, "live")  # Claude Code's live numbers, one file per session (see statusline.py)
+STATUSLINE = os.path.join(HERE, "statusline.py")
+CLAUDE_SETTINGS = os.path.expanduser("~/.claude/settings.json")
+MARK = "# claude-duo"  # tags our status line command in Claude Code's settings
 actions = []  # UI requests from the popover ("open", "quit"), consumed by the menu bar app
 on_action = lambda: None  # the menu bar app sets this to handle them at once
 state = {"admin_key": os.environ.get("ANTHROPIC_ADMIN_KEY", ""), "menubar_hidden": False}
@@ -229,7 +237,8 @@ def admin_usage():
     return {"days": days}
 
 
-_plan_cache = {"t": 0, "until": 0, "data": None, "error": None}
+_plan_cache = {"t": 0, "next": 0, "data": None, "error": None, "fails": 0, "plan": None}
+_plan_lock = threading.Lock()  # one request to Anthropic at a time, however many windows are asking
 
 
 def pace(percent, resets_at, window_hours, now=None):
@@ -278,24 +287,17 @@ def _load_plan_cache():
         pass
 
 
-def plan_usage():
-    """Real plan usage (% of 5h / weekly limits) for the logged-in claude.ai account.
-    Uses the same undocumented endpoint Claude Code's /usage uses, so it may change. It rate-limits (429)
-    easily, so results are cached, and on failure the last good numbers are kept (marked stale) while we back off."""
-    now = time.time()
-    last = _plan_cache["data"]
-    if last and now < _plan_cache["until"]:  # fresh cache, or backing off after an error
-        return last if now - _plan_cache["t"] < 120 or not _plan_cache["error"] else {**last, "stale": True, "stale_since": _plan_cache["t"]}
+def _fetch_plan(now):
+    """One request to the usage endpoint Claude Code's /usage uses (undocumented, so it may change)."""
+    c = _plan_cache
 
     def fail(msg, wait):
-        _plan_cache.update(until=now + wait, error=msg)
-        if last:
-            return {**last, "stale": True, "stale_since": _plan_cache["t"]}
-        return {"error": msg, "plan": (oauth or {}).get("subscriptionType")}
+        c.update(error=msg, next=now + wait, fails=c["fails"] + 1)
 
     oauth = read_oauth()
     if not oauth or not oauth.get("accessToken"):
         return fail("No Claude login found. Run `claude` and log in with /login, then reload.", 30)
+    c["plan"] = oauth.get("subscriptionType")
     exp = oauth.get("expiresAt")
     if exp and exp / 1000 < now:
         return fail("Your Claude login expired. Open Claude Code once to refresh it, then reload.", 30)
@@ -306,26 +308,185 @@ def plan_usage():
         with urllib.request.urlopen(req, timeout=15) as resp:
             raw = json.load(resp)
     except urllib.error.HTTPError as e:
-        if e.code == 429:
-            wait = max(300, int(e.headers.get("retry-after") or 0))  # too many requests: pause a few minutes
-            return fail(f"Anthropic is rate-limiting usage checks; retrying in {wait // 60} min.", wait)
+        if e.code == 429:  # too many checks: wait as long as asked, else 2, 4, 8 ... up to 15 minutes
+            ra = str((e.headers or {}).get("retry-after") or "").strip()
+            wait = int(ra) if ra.isdigit() and int(ra) > 0 else min(900, 120 * 2 ** c["fails"])
+            return fail(f"Anthropic is rate-limiting usage checks; next try in {max(1, round(wait / 60))} min.", wait)
         return fail(f"Plan usage request failed ({e.code}).", 120)
     except Exception as e:
         return fail(str(e), 60)
-    labels = {"five_hour": "5-hour session", "seven_day": "Weekly (all models)",
-              "seven_day_opus": "Weekly (Opus)", "seven_day_sonnet": "Weekly (Sonnet)"}
-    limits = [{"key": k, "label": labels.get(k, k.replace("_", " ")), "percent": v["utilization"],
-               "resets_at": v.get("resets_at"),
-               "pace": pace(v["utilization"], v.get("resets_at"), WINDOW_HOURS.get(k, 0)) if k in WINDOW_HOURS else None}
-              for k, v in raw.items() if isinstance(v, dict) and v.get("utilization") is not None]
+    limits = [{"key": k, "label": LABELS.get(k, k.replace("_", " ")), "percent": float(v["utilization"]),
+               "resets_at": v.get("resets_at")}
+              for k, v in raw.items() if isinstance(v, dict) and isinstance(v.get("utilization"), (int, float))]
     data = {"plan": oauth.get("subscriptionType"), "tier": oauth.get("rateLimitTier"), "limits": limits}
-    _plan_cache.update(t=now, until=now + load_config().get("plan_secs", 60), data=data, error=None)
+    c.update(t=now, next=now, data=data, error=None, fails=0)
     try:
         with open(PLAN_CACHE_FILE, "w") as f:
             json.dump({"t": now, "data": data}, f)
     except OSError:
         pass
-    return data
+
+
+def _poll(now, live_t):
+    """The usage endpoint, as the backup to Claude Code's live numbers: at most every plan_secs (every 5 min
+    or so while live numbers are coming in), one request at a time, backing off when Anthropic rate-limits."""
+    c = _plan_cache
+    every = load_config().get("plan_secs", 60)
+    if live_t and now - live_t < every:
+        every = max(300, 5 * every)
+    if now >= c["next"] and (c["data"] is None or now - c["t"] >= every) and _plan_lock.acquire(blocking=False):
+        try:
+            _fetch_plan(now)
+        finally:
+            _plan_lock.release()
+    return c["data"]
+
+
+def _iso(v):
+    """Reset times come as ISO text (usage endpoint) or Unix seconds (Claude Code)."""
+    if isinstance(v, bool) or v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return datetime.fromtimestamp(v / 1000 if v > 1e11 else v, timezone.utc).isoformat() if v > 0 else None
+    try:
+        parse_ts(str(v))
+        return str(v)
+    except ValueError:
+        return None
+
+
+def live_readings(now=None):
+    """The plan usage each Claude Code session saw in Anthropic's replies (files written by statusline.py)."""
+    now = now or time.time()
+    out = []
+    for path in glob.glob(os.path.join(LIVE_DIR, "*.json")):
+        try:
+            with open(path) as f:
+                d = json.load(f)
+            t, rl = float(d["t"]), d["rate_limits"]
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if now - t > 8 * 86400:  # older than any window: tidy up
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            continue
+        for k, v in (rl.items() if isinstance(rl, dict) else ()):
+            p = v.get("used_percentage") if isinstance(v, dict) else None
+            if isinstance(p, (int, float)) and not isinstance(p, bool):
+                out.append({"key": k, "percent": float(p), "resets_at": _iso(v.get("resets_at")), "t": t,
+                            "source": "claude_code"})
+    return out
+
+
+def merge_limits(readings, now=None):
+    """One value per limit from every reading (the usage endpoint and each Claude Code session). Usage only
+    goes up within a window, so the highest reading for the current window is the right one. Once a window's
+    reset time has passed it is back to 0 % until you use Claude again."""
+    now = now or time.time()
+    by = defaultdict(list)
+    for r in readings:
+        by[r["key"]].append(r)
+    out = []
+    for key in sorted(by, key=lambda k: (ORDER.index(k) if k in ORDER else len(ORDER), k)):
+        rs = by[key]
+        ends = {id(r): parse_ts(r["resets_at"]).timestamp() for r in rs if r.get("resets_at")}
+        current = [r for r in rs if ends.get(id(r), 0) > now]
+        if current:
+            last_end = max(ends[id(r)] for r in current)
+            # same window: the sources' reset times differ by moments, and windows are hours apart
+            tol = WINDOW_HOURS.get(key, 4) * 3600 / 4
+            current = [r for r in current if last_end - ends[id(r)] < tol]
+            best = max(current, key=lambda r: (r["percent"], r["t"]))
+            t = max(r["t"] for r in current)
+        else:
+            ended = max(ends.values(), default=0)
+            undated = [r for r in rs if not r.get("resets_at") and r["t"] > ended]  # read after the last reset
+            best = max(undated, key=lambda r: r["t"]) if undated else {"percent": 0.0, "resets_at": None,
+                                                                           "source": "reset"}
+            t = max(r["t"] for r in rs)
+        resets_at = best["resets_at"]
+        out.append({"key": key, "label": LABELS.get(key, key.replace("_", " ")), "percent": best["percent"],
+                    "resets_at": resets_at, "t": t, "source": best.get("source"),
+                    "pace": pace(best["percent"], resets_at, WINDOW_HOURS[key])
+                    if key in WINDOW_HOURS and resets_at else None})
+    return out
+
+
+def plan_usage():
+    """Your plan usage (% of the 5-hour and weekly limits): Claude Code's live numbers merged with the usage
+    endpoint. `updated` is when it was last confirmed; `stale` means nothing new for a few minutes."""
+    now = time.time()
+    live = live_readings(now)
+    data = _poll(now, max((r["t"] for r in live), default=0))
+    c = _plan_cache
+    readings = live + [dict(l, t=c["t"], source="anthropic") for l in (data or {}).get("limits", [])]
+    if not readings:
+        return {"error": c["error"] or "Connecting to your account…", "plan": c["plan"]}
+    limits = merge_limits(readings, now)
+    updated = max(l["t"] for l in limits)
+    out = {"plan": (data or {}).get("plan") or c["plan"], "tier": (data or {}).get("tier"), "limits": limits,
+           "updated": updated, "live": bool(live), "live_feed": live_feed_enabled()}
+    if now - updated > max(180, 2 * load_config().get("plan_secs", 60)):
+        out["stale"] = True
+    if c["error"]:
+        out["note"] = c["error"]
+    return out
+
+
+def statusline_cmd():
+    """How Claude Code runs statusline.py. Not sys.executable: inside the app that is the app itself."""
+    py = next((p for p in (os.path.join(HERE, ".venv", "bin", "python3"),
+                           os.path.join(sys.base_prefix, "bin", "python3")) if os.path.exists(p)), None) \
+        or shutil.which("python3") or "python3"
+    return f"{shlex.quote(py)} -I {shlex.quote(STATUSLINE)}  {MARK}"
+
+
+def _claude_settings():
+    try:
+        with open(CLAUDE_SETTINGS) as f:
+            s = json.load(f)
+    except FileNotFoundError:
+        return {}
+    if not isinstance(s, dict):
+        raise ValueError("~/.claude/settings.json isn't a JSON object")
+    return s
+
+
+def live_feed_enabled():
+    try:
+        sl = _claude_settings().get("statusLine")
+    except (OSError, ValueError):
+        return False
+    return isinstance(sl, dict) and STATUSLINE in str(sl.get("command") or "")
+
+
+def set_live_feed(on):
+    """Make Claude Code's status line feed Claude Duo live numbers (a status line you already had keeps
+    showing), or put yours back. The rest of ~/.claude/settings.json is left as it was."""
+    if bool(on) == live_feed_enabled():
+        return
+    s = _claude_settings()  # a file that isn't valid JSON raises, so we never overwrite it
+    cfg = load_config()
+    cur = s.get("statusLine") if isinstance(s.get("statusLine"), dict) else None
+    if on:
+        if not (cur and MARK in str(cur.get("command") or "")):  # remember yours (not an older copy of ours)
+            cfg["statusline_prev"] = cur
+        s["statusLine"] = {**(cur or {}), "type": "command", "command": statusline_cmd()}
+    else:
+        prev = cfg.pop("statusline_prev", None)
+        if isinstance(prev, dict) and prev.get("command") and MARK not in str(prev["command"]):
+            s["statusLine"] = prev
+        else:
+            s.pop("statusLine", None)
+    os.makedirs(os.path.dirname(CLAUDE_SETTINGS), exist_ok=True)
+    tmp = CLAUDE_SETTINGS + ".claude-duo.tmp"
+    with open(tmp, "w") as f:
+        json.dump(s, f, indent=2)
+        f.write("\n")
+    os.replace(tmp, CLAUDE_SETTINGS)
+    save_config(cfg)
 
 
 _load_plan_cache()
@@ -349,7 +510,8 @@ class H(BaseHTTPRequestHandler):
         if host not in ("127.0.0.1", "localhost"):
             self.send({"error": "forbidden"}, code=403)
             return False
-        if self.path.startswith("/api/term") and self.headers.get("X-Claude-Usage") != "1":
+        guarded = self.path.startswith("/api/term") or (self.command == "POST" and self.path == "/api/settings")
+        if guarded and self.headers.get("X-Claude-Usage") != "1":
             self.send({"error": "forbidden"}, code=403)  # the custom header can't be sent cross-site without CORS
             return False
         return True
@@ -381,7 +543,7 @@ class H(BaseHTTPRequestHandler):
             with open(os.path.join(HERE, self.path[1:]), "rb") as f:
                 self.send(f.read(), "text/css" if self.path.endswith("css") else "text/javascript")
         elif self.path == "/api/settings":
-            self.send({**load_config(), "login": login_enabled()})
+            self.send({**load_config(), "login": login_enabled(), "live_feed": live_feed_enabled()})
         elif self.path == "/api/plan":
             self.send(plan_usage())
         elif self.path == "/api/account":
@@ -433,7 +595,13 @@ class H(BaseHTTPRequestHandler):
             save_config(cfg)
             if isinstance(d.get("login"), bool):
                 set_login(d["login"])
-            self.send({**cfg, "login": login_enabled()})
+            if isinstance(d.get("live_feed"), bool):
+                try:
+                    set_live_feed(d["live_feed"])
+                except (OSError, ValueError) as e:
+                    self.send({"error": f"Couldn't change Claude Code's settings: {e}"}, code=400)
+                    return
+            self.send({**load_config(), "login": login_enabled(), "live_feed": live_feed_enabled()})
         elif self.path == "/api/action":
             if d.get("name") in ("open", "quit", "settings", "diagnose", "sessions", "menubar_settings") \
                     or d.get("name") in LINKS:

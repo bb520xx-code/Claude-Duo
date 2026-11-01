@@ -20,7 +20,7 @@ table{width:100%;border-collapse:collapse}td,th{padding:4px 2px;border-bottom:1p
 <header><h1>Claude Duo<span class="pill" id="planname">…</span></h1><nav class="tabs"><a class="on" href="/">Usage</a><a href="/sessions" data-sessions>Sessions</a></nav><span><span class="mute" id="upd"></span><button class="q" style="padding:6px 12px;margin-left:6px" title="Quit Claude Duo" onclick="act('quit')">⏻ Quit</button><a class="gear" href="/settings" title="Settings" aria-label="Settings">⚙</a></span></header>
 <div class="glass card" id="banner" style="display:none;margin-bottom:12px;border-color:rgba(240,160,32,.55)"><span>macOS is hiding the Claude Duo icon in your menu bar. Turn on <b>Claude Duo</b> under <b>Allow in the Menu Bar</b>.</span> <button style="padding:6px 12px;margin-left:8px" onclick="act('menubar_settings')">Open Menu Bar Settings</button></div>
 <div class="grid">
-  <div class="glass card" style="grid-column:1/-1"><h2 class="cap">Plan limits</h2><div class="rings" id="rings"><span class="mute">Connecting to your account…</span></div></div>
+  <div class="glass card" style="grid-column:1/-1"><h2 class="cap">Plan limits <span id="fresh" style="text-transform:none;letter-spacing:0;font-weight:400;margin-left:6px"></span></h2><div class="rings" id="rings"><span class="mute">Connecting to your account…</span></div></div>
   <div class="glass card"><h2 class="cap">Current 5-hour session</h2><div id="m5"></div></div>
   <div class="glass card"><h2 class="cap">Last 7 days</h2><div id="mw"></div></div>
   <div class="glass card"><h2 class="cap">Tokens per day</h2><div class="chart" id="chart"></div><div class="days" id="days"></div></div>
@@ -58,7 +58,8 @@ async function plan(){
   const p=await (await fetch('/api/plan')).json();
   $('planname').textContent=(p.plan||'').toUpperCase()||'NOT CONNECTED';
   if(p.error){$('rings').innerHTML=`<span class="err">${p.error}</span>`;return}
-  $('rings').innerHTML=p.limits.map(l=>`<div class="item"><div class="ring">${ring(l.percent,96,9,'used')}</div><div class="mute">${l.label}<br>resets ${rs(l.resets_at)}</div></div>`).join('');
+  $('fresh').innerHTML=freshness(p);
+  $('rings').innerHTML=p.limits.map(l=>`<div class="item"><div class="ring">${ring(l.percent,96,9,'used')}</div><div class="mute">${l.label}<br>${l.resets_at?'resets '+rs(l.resets_at):'starts when you next use Claude'}</div></div>`).join('');
 }
 async function saveLimits(){await fetch('/api/limits',{method:'POST',body:JSON.stringify({limit_5h:+$('l5').value,limit_week:+$('lw').value})});load()}
 async function connect(){await fetch('/api/connect',{method:'POST',body:JSON.stringify({key:$('key').value})});$('key').value='';account()}

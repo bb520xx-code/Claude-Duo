@@ -4,6 +4,9 @@ A macOS menu bar app for people who live in [Claude Code](https://claude.com/cla
 
 - **Plan usage in the menu bar**: `✦ 47%` for your 5-hour session (or weekly, or both), coloured
   green → yellow → red at thresholds you choose. A `●` appears while any Claude session is working.
+- **Live, exact numbers**: with *Live numbers from Claude Code* on (⚙), the % comes from the usage figures
+  Anthropic sends back with every Claude reply, so it updates within a second and can't be rate-limited.
+  Otherwise it checks Anthropic's usage endpoint, and always shows how fresh the number is.
 - **Liquid Glass popup** with Usage, Sessions and Settings tabs: limits with reset times and pace,
   busiest hours, a 14-day token sparkline.
 - **One terminal grid for all your sessions**: Claude Code and plain shell panes in a single tmux window
@@ -42,6 +45,9 @@ menu bar icon). If the icon doesn't show, allow Claude Duo under System Settings
 - **Sessions → Add a pane** opens Claude Code or a terminal in a folder; **⇲** moves another Terminal
   window's Claude session into the grid.
 - ✕ hides the window and the app keeps running; ⌘Q or ⏻ quits.
+- **⚙ → Live numbers from Claude Code** adds a small status line to Claude Code (`~/.claude/settings.json`)
+  that passes on the usage numbers from each reply; it keeps any status line you already had, and turning
+  it off puts yours back.
 
 Organization API usage (Console) needs an Admin API key (`sk-ant-admin…`), pasted in the Usage tab.
 It is kept in memory only.

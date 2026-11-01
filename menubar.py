@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Claude usage meter in the macOS menu bar. Run with .venv/bin/python menubar.py"""
-import os, subprocess, sys, threading, webbrowser
+import os, subprocess, sys, threading, time, webbrowser
 from http.server import ThreadingHTTPServer
 import objc, AppKit, Foundation, rumps
 import WebKit
@@ -76,6 +76,7 @@ class App(rumps.App):
         self.monitor = None
         self.hooked = False
         self.pending = None
+        self.live_mtime = None  # when Claude Code last wrote live numbers (see statusline.py)
         self.wake = threading.Event()
         threading.Thread(target=self.worker, daemon=True).start()
         threading.Thread(target=self.grid_keeper, daemon=True).start()
@@ -320,18 +321,22 @@ class App(rumps.App):
             shown = {"session": [s5], "weekly": [wk], "both": [s5, wk]}[self.cfg.get("display", "session")]
             shown = [x for x in shown if x is not None] or [s5 if s5 is not None else wk]
             title = ("✦ " if self.cfg.get("show_icon", True) else "") + (" · ".join(f"{x:.0f}%" for x in shown) if shown[0] is not None else "Claude")
-            head = f"Plan: {(plan.get('plan') or 'unknown').upper()}" + (" (cached, rate-limited)" if plan.get("stale") else "")
+            when = time.strftime("%H:%M:%S", time.localtime(plan["updated"])) if plan.get("updated") else "?"
+            live = any(l.get("source") == "claude_code" for l in limits)
+            head = f"Plan: {(plan.get('plan') or 'unknown').upper()} · updated {when}" + (" (old)" if plan.get("stale") else "")
+            tip = f"Updated {when}, " + ("live from Claude Code" if live else "from Anthropic") \
+                + (f"\n{plan['note']}" if plan.get("stale") and plan.get("note") else "")
         else:  # not logged in / endpoint down: fall back to local token counts vs your own limits
             s = meter.summarize()
             local = s['block']['counted'] / s['limits']['limit_5h'] * 100
             title = f"✦ {local:.0f}%"
-            head = plan["error"]
+            head = tip = plan["error"]
             lines.append(f"5h session: {fmt(s['block']['counted'])} tokens (local)")
             lines.append(f"7 days: {fmt(s['week']['counted'])} tokens (local)")
         top = max([x for x in shown if x is not None], default=None) if limits else local
         if self.cfg.get("show_busy", True) and any(s["status"] == "busy" for s in sessions.running()):
             title += " ●"  # Claude is working somewhere
-        return {"title": title, "head": head, "lines": lines, "limits": limits, "top": top}
+        return {"title": title, "head": head, "lines": lines, "limits": limits, "top": top, "tip": tip}
 
     def color_title(self, pct):
         """Green, then yellow, then red, from the percentages chosen in Settings (default 50 / 90)."""
@@ -435,6 +440,14 @@ class App(rumps.App):
             which, self.show_on_start = self.show_on_start, False
             self.open_sessions() if which == "sessions" else self.open(None)
         self.ticks += 1
+        try:  # Claude Code just wrote new live numbers: show them now, not at the next refresh
+            m = os.stat(meter.LIVE_DIR).st_mtime
+        except OSError:
+            m = 0
+        if m != self.live_mtime:
+            if self.live_mtime is not None:
+                self.wake.set()
+            self.live_mtime = m
         if self.ticks in (3, 10) or self.ticks % 60 == 0:
             self.check_menubar()
         if not any(w is not None and w.isVisible() for w in (self.win,)) \
@@ -445,6 +458,7 @@ class App(rumps.App):
         p, self.pending = self.pending, None
         self.title = p["title"]
         self.color_title(p.get("top"))
+        self._nsapp.nsstatusitem.button().setToolTip_(p.get("tip") or "Claude Duo")
         self.menu.clear()
         self.menu.update(self.build_menu(p["head"], p["lines"]))
 

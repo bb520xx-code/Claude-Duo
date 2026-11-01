@@ -57,7 +57,7 @@ label.ck{display:flex;align-items:center;gap:6px;margin-top:7px;color:var(--mute
   <a class="gear" id="t-settings" title="Settings (,)" onclick="view('settings')">⚙</a></div>
 
 <div class="view on" id="v-usage">
-  <div class="big"><div class="n" id="n">–<small>%</small></div><div class="s" id="s">Connecting…</div><div class="s" id="pace" style="margin-top:2px;font-size:11px"></div></div>
+  <div class="big"><div class="n" id="n">–<small>%</small></div><div class="s" id="s">Connecting…</div><div class="s" id="pace" style="margin-top:2px;font-size:11px"></div><div class="s" id="fresh" style="margin-top:2px;font-size:10.5px"></div></div>
   <h3>Limits</h3>
   <div class="glass card"><div class="tiles" id="lims"></div></div>
   <h3>Busiest hours</h3>
@@ -93,6 +93,7 @@ label.ck{display:flex;align-items:center;gap:6px;margin-top:7px;color:var(--mute
     <div class="row"><span>Refreshes every</span><div class="seg" id="refresh_secs"><button data-v="10">10s</button><button data-v="30">30s</button><button data-v="60">1m</button><button data-v="300">5m</button></div></div>
     <div class="row"><span>Plan % updates</span><div class="seg" id="plan_secs"><button data-v="30">30s</button><button data-v="60">1m</button><button data-v="120">2m</button><button data-v="300">5m</button></div></div>
     <div class="row"><span>Colours at</span><div class="lv"><label><i style="background:var(--yel)"></i><input type="number" id="yellow_at" min="1" max="100"></label><label><i style="background:var(--bad)"></i><input type="number" id="red_at" min="1" max="100"></label></div></div>
+    <div class="row" title="Updates the % the moment Claude replies, from Claude Code's status line"><span>Live numbers from Claude Code</span><div class="sw" id="live_feed"></div></div>
     <div class="row"><span>Show ✦ icon</span><div class="sw" id="show_icon"></div></div>
     <div class="row"><span>● while Claude works</span><div class="sw" id="show_busy"></div></div>
     <div class="row"><span>Notify near limit</span><div class="sw" id="notify"></div></div>
@@ -127,7 +128,8 @@ async function usage(){
   const L=p.limits||[], f=L.find(l=>l.key==='five_hour');
   const pct=f?f.percent:s.block.counted/s.limits.limit_5h*100;
   $('n').innerHTML=pct.toFixed(0)+'<small>%</small>';
-  $('s').textContent=(p.plan?p.plan.toUpperCase()+' plan · ':'')+(f?'session resets '+rs(f.resets_at):'local estimate')+(p.stale?' · cached':'');
+  $('s').textContent=(p.plan?p.plan.toUpperCase()+' plan · ':'')+(f?(f.resets_at?'session resets '+rs(f.resets_at):'new session starts when you next use Claude'):'local estimate');
+  $('fresh').innerHTML=freshness(p);
   const pc=f&&f.pace; const pe=$('pace'); pe.textContent=pc?(pc>=100?'⚠︎ on pace to hit the limit before reset':'On pace for ~'+pc.toFixed(0)+'% by reset'):''; pe.style.color=pc>=100?'var(--bad)':'';
   const tiles=L.length?L:[{label:'Session (local)',percent:pct}];
   const colors=['var(--ok)','#f0a020','#3aa0e0','#c070e0'];
@@ -177,7 +179,8 @@ async function sessions(){
 
 let t;
 async function save(patch){
-  const r=await fetch('/api/settings',{method:'POST',body:JSON.stringify(patch)}).then(r=>r.json());
+  const r=await fetch('/api/settings',{method:'POST',headers:H,body:JSON.stringify(patch)}).then(r=>r.json());
+  if(r.error){$('saved').textContent=r.error;$('saved').classList.add('on');clearTimeout(t);t=setTimeout(()=>{$('saved').classList.remove('on');$('saved').textContent='Saved'},4000);return settings()}
   $('saved').classList.add('on');clearTimeout(t);t=setTimeout(()=>$('saved').classList.remove('on'),1200);
   showSettings(r);
 }
@@ -186,14 +189,14 @@ function showSettings(c){
   document.querySelectorAll('#plan_secs button').forEach(b=>b.classList.toggle('on',+b.dataset.v===c.plan_secs));
   document.querySelectorAll('#refresh_secs button').forEach(b=>b.classList.toggle('on',+b.dataset.v===c.refresh_secs));
   every(c.refresh_secs);
-  for(const k of ['show_icon','show_busy','notify','notify_done','login'])$(k).classList.toggle('on',!!c[k]);
+  for(const k of ['show_icon','show_busy','notify','notify_done','login','live_feed'])$(k).classList.toggle('on',!!c[k]);
   for(const k of ['yellow_at','red_at']){LV[k]=c[k];if(document.activeElement!==$(k))$(k).value=c[k]}
 }
 for(const k of ['yellow_at','red_at'])$(k).onchange=()=>save({[k]:+$(k).value});
 document.querySelectorAll('#display button').forEach(b=>b.onclick=()=>save({display:b.dataset.v}));
 document.querySelectorAll('#plan_secs button').forEach(b=>b.onclick=()=>save({plan_secs:+b.dataset.v}));
 document.querySelectorAll('#refresh_secs button').forEach(b=>b.onclick=()=>save({refresh_secs:+b.dataset.v}));
-for(const k of ['show_icon','show_busy','notify','notify_done','login'])$(k).onclick=()=>save({[k]:!$(k).classList.contains('on')});
+for(const k of ['show_icon','show_busy','notify','notify_done','login','live_feed'])$(k).onclick=()=>save({[k]:!$(k).classList.contains('on')});
 async function settings(){showSettings(await fetch('/api/settings').then(r=>r.json()))}
 
 function fit(){  // tell the app how tall this tab is, so the popup fits it without scrolling
