@@ -4,7 +4,7 @@ A menu bar app for people who live in [Claude Code](https://claude.com/claude-co
 
 ## New: Claude Duo on your iPhone
 
-Check your Claude limits from the couch. Claude Duo on your Mac now serves a phone version over your Wi-Fi:
+Check your Claude limits from the couch. Claude Duo on your computer (Mac or Windows) serves a phone version over your Wi-Fi:
 scan a QR code, tap **Add to Home Screen**, and it opens full screen like any other app. No App Store, no
 Xcode, nothing to install on the phone.
 
@@ -73,9 +73,10 @@ Releases page.
 
 ## Requirements
 
-- macOS on Apple silicon, [Homebrew](https://brew.sh)
 - Claude Code, signed in with a Claude plan (Pro / Max)
-- Python 3.14 and tmux (the installer adds them via Homebrew)
+- Mac: Apple silicon. Windows: Windows 10 or 11.
+- Only to install from the code on a Mac: [Homebrew](https://brew.sh), Python 3.14 and tmux (the installer adds
+  the last two via Homebrew)
 
 ## Install
 
