@@ -226,8 +226,11 @@ def summarize():
         "limits": {"limit_5h": cfg["limit_5h"], "limit_week": cfg["limit_week"]},
         "block": {**agg(block), "resets_at": (block_start + timedelta(hours=5)).isoformat() if in_block else None},
         "week": agg(week), "all": agg(rows), "daily": daily, "hourly": hourly,
-        "projects": sorted(({"project": k, "tokens": v} for k, v in projects.items()), key=lambda x: -x["tokens"])[:8],
-        "models": sorted(({"model": k, "tokens": v} for k, v in models.items()), key=lambda x: -x["tokens"]),
+        "projects": sorted(({"project": k, "tokens": v} for k, v in projects.items() if v > 0),
+                           key=lambda x: -x["tokens"])[:8],
+        # no-token entries such as Claude Code's internal "<synthetic>" placeholder are left out
+        "models": sorted(({"model": k, "tokens": v} for k, v in models.items() if v > 0 and k != "<synthetic>"),
+                         key=lambda x: -x["tokens"]),
         "has_admin_key": bool(state["admin_key"]),
     }
 

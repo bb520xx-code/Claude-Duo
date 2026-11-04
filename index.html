@@ -3,21 +3,25 @@
 <link rel="stylesheet" href="/glass.css">
 <style>
 main{max-width:1000px;margin:0 auto;padding:40px 16px 18px;font-size:12px}
-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
+/* the header wraps when the window is narrow: name + tabs first, then the time, Quit and ⚙ on the right */
+header{display:flex;align-items:center;flex-wrap:wrap;gap:10px 12px;margin-bottom:18px}
+header h1{flex:1 1 auto;white-space:nowrap}
+header .right{flex:1 1 auto;display:flex;align-items:center;justify-content:flex-end;gap:6px;white-space:nowrap}
 h1{font-size:20px;font-weight:600;margin:0;letter-spacing:-.01em}.pill{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;margin-left:8px;vertical-align:middle;background:var(--track)}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));gap:12px}  /* one column when narrow, never wider than the window */
 .card{padding:12px 14px;border-radius:18px}.card h2{margin:0 0 8px}
 .rings{display:flex;gap:14px;flex-wrap:wrap;justify-content:space-around}.rings .item{text-align:center}.rings .item .mute{margin-top:6px;font-size:12px}
 .stats{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-top:8px}.stats b{display:block;font-size:14px}
 .chart{display:flex;align-items:flex-end;gap:5px;height:80px}.chart div{flex:1;border-radius:6px 6px 2px 2px;min-height:3px;background:linear-gradient(180deg,#ff9a76,var(--accent));position:relative;box-shadow:0 0 12px rgba(217,119,87,.35)}
 .chart div:hover::after{content:attr(data-t);position:absolute;bottom:100%;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:2px 7px;border-radius:6px;font-size:11px;white-space:nowrap}
 .days{display:flex;gap:5px;margin-top:4px;font-size:10px;color:var(--mute)}.days span{flex:1;text-align:center}
-table{width:100%;border-collapse:collapse}td,th{padding:4px 2px;border-bottom:1px solid var(--track);text-align:right;font-weight:400}td:first-child,th:first-child{text-align:left}th{color:var(--mute);font-size:11px}
+table{width:100%;border-collapse:collapse}td:first-child{overflow-wrap:anywhere}td:last-child,th:last-child{white-space:nowrap;padding-left:10px}  /* long names wrap inside their card */
+.scroll{overflow-x:auto}td,th{padding:4px 2px;border-bottom:1px solid var(--track);text-align:right;font-weight:400}td:first-child,th:first-child{text-align:left}th{color:var(--mute);font-size:11px}
 .f{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}.f label{flex:1;min-width:130px;font-size:12px;color:var(--mute)}.f label input{margin-top:4px}
 .err{color:var(--bad)}details summary{cursor:pointer}
 </style></head><body>
 <main>
-<header><h1>Claude Duo<span class="pill" id="planname">…</span></h1><nav class="tabs"><a class="on" href="/">Usage</a><a href="/sessions" data-sessions>Sessions</a></nav><span><span class="mute" id="upd"></span><button class="q" style="padding:6px 12px;margin-left:6px" title="Quit Claude Duo" onclick="act('quit')">⏻ Quit</button><a class="gear" href="/settings" title="Settings" aria-label="Settings">⚙</a></span></header>
+<header><h1>Claude Duo<span class="pill" id="planname">…</span></h1><nav class="tabs"><a class="on" href="/">Usage</a><a href="/sessions" data-sessions>Sessions</a></nav><span class="right"><span class="mute" id="upd"></span><button class="q" style="padding:6px 12px" title="Quit Claude Duo" onclick="act('quit')">⏻ Quit</button><a class="gear" style="margin-left:0" href="/settings" title="Settings" aria-label="Settings">⚙</a></span></header>
 <div class="glass card" id="banner" style="display:none;margin-bottom:12px;border-color:rgba(240,160,32,.55)"><span>macOS is hiding the Claude Duo icon in your menu bar. Turn on <b>Claude Duo</b> under <b>Allow in the Menu Bar</b>.</span> <button style="padding:6px 12px;margin-left:8px" onclick="act('menubar_settings')">Open Menu Bar Settings</button></div>
 <div class="grid">
   <div class="glass card" style="grid-column:1/-1"><h2 class="cap">Plan limits <span id="fresh" style="text-transform:none;letter-spacing:0;font-weight:400;margin-left:6px"></span></h2><div class="rings" id="rings"><span class="mute">Connecting to your account…</span></div></div>
@@ -30,11 +34,13 @@ table{width:100%;border-collapse:collapse}td,th{padding:4px 2px;border-bottom:1p
   <div class="glass card"><h2 class="cap">Your limits (tokens)</h2><div class="f"><label>5-hour session<input id="l5" type="number"></label><label>Weekly<input id="lw" type="number"></label><button onclick="saveLimits()">Save</button></div><p class="mute" style="margin:10px 0 0;font-size:12px">Only used for the local token bars. Plan percentages come from your account.</p></div>
   <div class="glass card"><details><summary class="cap">Organization API usage (optional)</summary>
     <p class="mute" style="font-size:12px">Paste an Anthropic Admin API key. Kept in memory only.</p>
-    <div class="f"><label>Admin key<input id="key" type="password" placeholder="sk-ant-admin..."></label><button onclick="connect()">Connect</button></div><div id="acct" style="margin-top:12px"></div></details></div>
+    <div class="f"><label>Admin key<input id="key" type="password" placeholder="sk-ant-admin..."></label><button onclick="connect()">Connect</button></div><div id="acct" class="scroll" style="margin-top:12px"></div></details></div>
 </div></main>
 <script src="/ui.js"></script>
 <script>
 const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const path=p=>esc(p).replace(/\//g,'/<wbr>');  // a long folder path can break after each /
 function tokens(el,a,limit){
   const p=Math.min(100,a.counted/limit*100);
   el.innerHTML=`<div class="row" style="display:flex;justify-content:space-between;align-items:baseline"><b style="font-size:20px;font-weight:300">${p.toFixed(1)}%</b><span class="mute">${fmt(a.counted)} / ${fmt(limit)}</span></div>
@@ -47,17 +53,17 @@ async function load(){
   tokens($('m5'),s.block,s.limits.limit_5h);tokens($('mw'),s.week,s.limits.limit_week);
   const mx=Math.max(1,...s.daily.map(d=>d.tokens));
   $('chart').innerHTML=s.daily.map(d=>`<div style="height:${d.tokens/mx*100}%" data-t="${d.day}: ${fmt(d.tokens)}"></div>`).join('');
-  $('projects').innerHTML='<tr><th>Project</th><th>Tokens</th></tr>'+(s.projects.map(p=>`<tr><td>${p.project}</td><td>${fmt(p.tokens)}</td></tr>`).join('')||'<tr><td colspan=2 class="mute">No usage yet</td></tr>');
+  $('projects').innerHTML='<tr><th>Project</th><th>Tokens</th></tr>'+(s.projects.map(p=>`<tr><td title="${esc(p.project)}">${path(p.project)}</td><td>${fmt(p.tokens)}</td></tr>`).join('')||'<tr><td colspan=2 class="mute">No usage yet</td></tr>');
   $('hrs').innerHTML=hourChart(s.hourly,76);
   $('days').innerHTML=s.daily.map(d=>`<span>${d.day.slice(8)}</span>`).join('');
-  $('models').innerHTML='<tr><th>Model</th><th>Tokens</th></tr>'+(s.models.map(m=>`<tr><td>${m.model}</td><td>${fmt(m.tokens)}</td></tr>`).join('')||'<tr><td colspan=2 class="mute">No usage yet</td></tr>');
+  $('models').innerHTML='<tr><th>Model</th><th>Tokens</th></tr>'+(s.models.map(m=>`<tr><td>${esc(m.model)}</td><td>${fmt(m.tokens)}</td></tr>`).join('')||'<tr><td colspan=2 class="mute">No usage yet</td></tr>');
   if(first){$('l5').value=s.limits.limit_5h;$('lw').value=s.limits.limit_week;first=false;if(s.has_admin_key)account()}
   $('upd').textContent='updated '+new Date().toLocaleTimeString();
 }
 async function plan(){
   const p=await (await fetch('/api/plan')).json();
   $('planname').textContent=(p.plan||'').toUpperCase()||'NOT CONNECTED';
-  if(p.error){$('rings').innerHTML=`<span class="err">${p.error}</span>`;return}
+  if(p.error){$('rings').innerHTML=`<span class="err">${esc(p.error)}</span>`;return}
   $('fresh').innerHTML=freshness(p);
   $('rings').innerHTML=p.limits.map(l=>`<div class="item"><div class="ring">${ring(l.percent,96,9,'used')}</div><div class="mute">${l.label}<br>${l.resets_at?'resets '+rs(l.resets_at):'starts when you next use Claude'}</div></div>`).join('');
 }
@@ -65,7 +71,7 @@ async function saveLimits(){await fetch('/api/limits',{method:'POST',body:JSON.s
 async function connect(){await fetch('/api/connect',{method:'POST',body:JSON.stringify({key:$('key').value})});$('key').value='';account()}
 async function account(){
   const a=await (await fetch('/api/account')).json();
-  $('acct').innerHTML=a.error?`<span class="err">${a.error}</span>`:'<table><tr><th>Day</th><th>Input</th><th>Output</th><th>Cache read</th></tr>'+a.days.map(d=>`<tr><td>${d.day}</td><td>${fmt(d.input)}</td><td>${fmt(d.output)}</td><td>${fmt(d.cache_read)}</td></tr>`).join('')+'</table>';
+  $('acct').innerHTML=a.error?`<span class="err">${esc(a.error)}</span>`:'<table><tr><th>Day</th><th>Input</th><th>Output</th><th>Cache read</th></tr>'+a.days.map(d=>`<tr><td>${d.day}</td><td>${fmt(d.input)}</td><td>${fmt(d.output)}</td><td>${fmt(d.cache_read)}</td></tr>`).join('')+'</table>';
 }
 async function status(){try{const s=await (await fetch('/api/status')).json();$('banner').style.display=s.menubar_hidden?'block':'none'}catch(e){}}
 load();plan();status();setInterval(status,10000);

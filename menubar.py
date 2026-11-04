@@ -7,6 +7,9 @@ import WebKit
 import meter, sessions
 
 
+MIN_WINDOW = (380, 360)  # the main window's smallest size (points); every page is laid out to fit it
+
+
 def fmt(n):
     return f"{n/1e6:.2f}M" if n >= 1e6 else f"{n/1e3:.1f}k" if n >= 1e3 else str(n)
 
@@ -124,6 +127,7 @@ class App(rumps.App):
             | AppKit.NSWindowStyleMaskMiniaturizable | AppKit.NSWindowStyleMaskFullSizeContentView,
             AppKit.NSBackingStoreBuffered, False)
         win.setReleasedWhenClosed_(False)
+        win.setContentMinSize_(Foundation.NSMakeSize(*MIN_WINDOW))  # narrower than this, the pages can't fit
         win.setTitle_(title)
         win.setTitlebarAppearsTransparent_(True)
         win.setTitleVisibility_(AppKit.NSWindowTitleHidden)

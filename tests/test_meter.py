@@ -519,6 +519,19 @@ class WindowsApp(unittest.TestCase):
         self.assertIn("12%", r.stdout)
 
 
+class SummaryLists(unittest.TestCase):
+    def test_no_empty_rows(self):
+        """Claude Code's "<synthetic>" placeholder (no tokens) showed up as a blank row with 0 on the Usage page."""
+        now = datetime.now(timezone.utc)
+        rows = [(now - timedelta(hours=1), "claude-opus-5-5", 10, 20, 30, 40, "Desktop/app"),
+                (now - timedelta(minutes=30), "<synthetic>", 0, 0, 0, 0, "Desktop/app"),
+                (now - timedelta(minutes=20), "claude-sonnet-5-5", 0, 0, 0, 0, "Desktop/empty")]
+        with mock.patch.object(meter, "read_local", return_value=rows):
+            s = meter.summarize()
+        self.assertEqual(s["models"], [{"model": "claude-opus-5-5", "tokens": 60}])
+        self.assertEqual(s["projects"], [{"project": "Desktop/app", "tokens": 60}])
+
+
 class Pace(unittest.TestCase):
     def test_projection(self):
         now = datetime(2026, 1, 1, 12, tzinfo=timezone.utc)
