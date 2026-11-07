@@ -84,6 +84,8 @@ class App(rumps.App):
         self.wake = threading.Event()
         threading.Thread(target=self.worker, daemon=True).start()
         threading.Thread(target=self.grid_keeper, daemon=True).start()
+        import drivesync  # folders, settings and the grid shared with a drive (and through it, your other Macs)
+        threading.Thread(target=drivesync.watch, args=(banner,), daemon=True).start()
         # a button press runs right away on the main thread, instead of waiting for the next timer tick
         meter.on_action = lambda: Foundation.NSOperationQueue.mainQueue().addOperationWithBlock_(self.drain)
         self.apply_timer = rumps.Timer(self.apply, 1)  # applies fetched data on the main thread
@@ -281,6 +283,12 @@ class App(rumps.App):
 
     def drive_ejecting(self, volume):
         """macOS is about to eject a drive (main thread; the eject waits for this)."""
+        try:  # the last changes onto the drive first, so another Mac carries on from here
+            import drivesync
+            if drivesync.pairs(volume):
+                drivesync.save_to(volume, quick=True)
+        except Exception:
+            pass
         try:
             n = sessions.release_drive(volume)
         except Exception:

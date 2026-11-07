@@ -66,6 +66,12 @@ Releases page.
 - **Projects on an external drive**: eject or unplug the drive and its sessions pause in their panes (the
   eject isn't blocked by them); plug it back in and each one picks up where it left off by itself, even
   after a restart. Keep the app itself on the Mac (`~/Applications`), so it's there when the drive isn't.
+- **One drive, two Macs**: pair a folder on the drive with one on each Mac (`"drive_sync": [{"drive":
+  "/Volumes/My Drive/Projects", "local": "~/Projects"}]` in `config.json`; one Mac is enough, the pair is
+  written on the drive). While it's plugged in, changes are copied both ways every minute and on eject (the
+  newer file wins, the replaced one is kept; deleting doesn't delete on the other side). Your settings, the
+  grid and its Claude conversations go on the drive too: plug it into your other Mac and it opens the same
+  grid, each pane carrying on its conversation in that Mac's copy of the folder.
 - **iPhone app**: your usage, limits, token charts and which sessions are working, on your iPhone's Home Screen.
 - **Notifications** near your limit and when Claude finishes in any session.
 - **Light or dark**: ⚙ → Appearance switches every window to Light or Dark, or Auto to follow your Mac.

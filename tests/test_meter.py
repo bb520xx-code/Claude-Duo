@@ -990,6 +990,41 @@ class LaunchAtLogin(unittest.TestCase):
                 self.assertFalse(meter.fix_login("/new/Claude Duo.app"))  # Launch at login is off
 
 
+class DriveSync(unittest.TestCase):
+    PRS = [("/Volumes/D/Work/AI", "/Users/x/Desktop/Work/AI", "Work/AI")]
+
+    def test_folders_travel_between_macs(self):
+        import drivesync
+        p = drivesync.portable("/Users/x/Desktop/Work/AI/site", self.PRS)
+        self.assertEqual(p, {"pair": "Work/AI", "rel": "site"})
+        self.assertEqual(drivesync.portable("/Volumes/D/Work/AI/site", self.PRS), p)  # the drive's copy: same
+        other = [("/Volumes/D/Work/AI", "/Users/y/Projects/AI", "Work/AI")]  # the other Mac keeps it elsewhere
+        self.assertEqual(drivesync.local_path(p, other), "/Users/y/Projects/AI/site")
+        self.assertEqual(drivesync.local_path(drivesync.portable("/Users/x/Desktop/Work/AI", self.PRS), other),
+                         "/Users/y/Projects/AI")
+        with mock.patch("os.path.expanduser", side_effect=lambda q: q.replace("~", "/Users/x", 1)):
+            self.assertEqual(drivesync.portable("/Users/x/Desktop/FLL", self.PRS), {"path": "~/Desktop/FLL"})
+        self.assertIsNone(drivesync.local_path({"pair": "Other", "rel": "a"}, other))
+        self.assertEqual(drivesync.project_key("/Users/x/Desktop/Work/AI/Claude Duo"),
+                         "-Users-x-Desktop-Work-AI-Claude-Duo")  # how Claude Code names it
+
+    def test_grid_from_this_mac_isnt_reopened(self):
+        import drivesync
+        with tempfile.TemporaryDirectory() as tmp:
+            os.makedirs(os.path.join(tmp, ".claude-duo"))
+            with open(os.path.join(tmp, ".claude-duo", "grid.json"), "w") as f:
+                json.dump({"mac": "Mini", "saved_at": 5, "layout": "l", "panes": [
+                    {"cwd": {"pair": "Work/AI", "rel": "site"}, "session_id": "s", "claude": True}]}, f)
+            with mock.patch.object(drivesync, "ADOPTED", os.path.join(tmp, "adopted.json")):
+                with mock.patch.object(drivesync, "this_mac", return_value="Mini"):
+                    self.assertIsNone(drivesync.grid_to_adopt(tmp, self.PRS))
+                with mock.patch.object(drivesync, "this_mac", return_value="MacBook"):
+                    g = drivesync.grid_to_adopt(tmp, self.PRS)
+                    self.assertEqual(g["panes"][0]["cwd"], "/Users/x/Desktop/Work/AI/site")
+                    with mock.patch.object(sessions, "running", return_value=[{"pane": "%1", "status": "busy", "pid": 1}]):
+                        self.assertFalse(drivesync.adopt_grid(tmp, g))  # waits while a session is working
+
+
 @unittest.skipUnless(sys.platform == "darwin", "the menu bar app is the Mac one")
 class AppLoads(unittest.TestCase):
     def test_menubar_imports(self):  # catches crashes at start-up (e.g. clashing Objective-C class names)
