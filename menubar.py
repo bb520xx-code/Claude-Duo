@@ -251,6 +251,11 @@ class App(rumps.App):
         Foundation.NSAppleEventManager.sharedAppleEventManager().setEventHandler_andSelector_forEventClass_andEventID_(
             self.reopener, "handleReopen:withReplyEvent:", 0x61657674, 0x72617070)  # 'aevt' / 'rapp'
         self.edit_menu()
+        try:  # ejecting a drive: park its grid sessions first, so they don't block the eject
+            import drives
+            drives.on_eject(self.drive_ejecting)
+        except Exception:
+            pass
         self.hooked = True
         # started by hand (not at login): show the dashboard, or the sessions window for the Claude Sessions app
         self.show_on_start = "sessions" if "--sessions" in sys.argv else "--background" not in sys.argv
@@ -274,9 +279,19 @@ class App(rumps.App):
     def refresh(self):
         self.wake.set()
 
+    def drive_ejecting(self, volume):
+        """macOS is about to eject a drive (main thread; the eject waits for this)."""
+        try:
+            n = sessions.release_drive(volume)
+        except Exception:
+            return
+        if n:
+            banner(f"{os.path.basename(volume)} ejected", paused(n))
+
     def grid_keeper(self):
         """Saves the session grid every few seconds and rebuilds it when the app starts after a restart or crash.
-        If the grid disappears while the app is running, you closed it yourself, so it isn't brought back."""
+        If the grid disappears while the app is running, you closed it yourself, so it isn't brought back.
+        A drive pulled out without ejecting: its sessions wait for it, and resume by themselves when it's back."""
         import time
         had, before = False, None
         try:
@@ -285,6 +300,8 @@ class App(rumps.App):
             pass
         while True:
             try:
+                for drive, n in sessions.park_unplugged().items():
+                    banner(f"{os.path.basename(drive)} unplugged", paused(n))
                 now = sessions.grid_exists()
                 if now:
                     sessions.save_grid()
@@ -490,7 +507,30 @@ def banner(title, msg):
                     title, msg], capture_output=True)
 
 
+def paused(n):
+    return (f"{n} session{'s' if n > 1 else ''} paused. "
+            f"{'They pick' if n > 1 else 'It picks'} up again as soon as you plug it back in.")
+
+
+def mac_copy(bundle):
+    """When this app was opened from an external drive: the same app installed on the Mac itself, if there is
+    one. Running that copy keeps Claude Duo going when the drive is ejected or pulled out."""
+    if not sessions.drive_of(bundle):
+        return None
+    me = AppKit.NSBundle.mainBundle().bundleIdentifier()
+    for path in meter.APP_PATHS:
+        b = AppKit.NSBundle.bundleWithPath_(path)
+        if path != bundle and b is not None and b.bundleIdentifier() == me and not sessions.drive_of(path):
+            return path
+    return None
+
+
 def main():
+    bundle = AppKit.NSBundle.mainBundle().bundlePath()
+    other = mac_copy(bundle)
+    if other:  # opened from a drive: run the Mac's copy instead, so the drive can come and go
+        subprocess.Popen(["/usr/bin/open", other, "--args", *sys.argv[1:]])
+        return
     try:
         server = ThreadingHTTPServer(("127.0.0.1", meter.PORT), meter.H)
     except OSError:  # already running (one icon only): ask that copy to show its dashboard instead
@@ -509,9 +549,9 @@ def main():
         phone.sync()
     except Exception:
         pass
-    bundle = AppKit.NSBundle.mainBundle().bundlePath()
     if bundle.endswith(".app"):  # wherever the app lives, so "Launch at login" opens this copy
         meter.state["app_path"] = bundle
+        meter.fix_login(bundle)  # the app was moved: Launch at login follows it
     App(server).run()
 
 

@@ -63,6 +63,9 @@ Releases page.
   full conversation (`claude --resume`).
 - **Crash-proof grid**: the layout, each pane's folder, its Claude conversation, screen text and shell
   history are saved every few seconds and rebuilt after a crash or restart.
+- **Projects on an external drive**: eject or unplug the drive and its sessions pause in their panes (the
+  eject isn't blocked by them); plug it back in and each one picks up where it left off by itself, even
+  after a restart. Keep the app itself on the Mac (`~/Applications`), so it's there when the drive isn't.
 - **iPhone app**: your usage, limits, token charts and which sessions are working, on your iPhone's Home Screen.
 - **Notifications** near your limit and when Claude finishes in any session.
 - **Light or dark**: ⚙ → Appearance switches every window to Light or Dark, or Auto to follow your Mac.

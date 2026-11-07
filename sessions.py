@@ -2,6 +2,9 @@
 
 Each pane of the "claude-grid" tmux session runs one `claude`. Sessions running in other Terminal tabs can be
 moved in: they're stopped and resumed (`claude --resume <id>`) in a new pane, so the conversation carries on.
+
+Folders on an external drive: when the drive is ejected or pulled out, its panes stop what they run and wait in
+their place ("parked"), so nothing holds the drive. The moment it's plugged back in, each one resumes by itself.
 """
 import glob, json, os, shlex, shutil, signal, subprocess, time
 from datetime import datetime
@@ -17,7 +20,26 @@ SAVED = os.path.join(DATA, "grid.json")  # last saved grid, for restoring
 SCREENS = os.path.join(DATA, "grid_screens")  # each terminal pane's text
 NO_GRID = "The pane grid needs tmux, which Windows doesn't have. New sessions open in Windows Terminal instead."
 SCREEN_LINES = 5000  # scrollback kept per terminal pane
+HOME = os.path.expanduser("~")
+PANE_FORMAT = "\t".join(["#{pane_id}", "#{pane_tty}", "#{pane_current_command}", "#{pane_current_path}",
+                         "#{pane_active}", "#{@duo_wait}", "#{@duo_sid}", "#{@duo_claude}", "#{pane_pid}"])
 _path = None
+_known = {}  # pane id -> its folder and conversation at the last look (a pane on a pulled-out drive can't say)
+
+
+def drive_of(path):
+    """The external drive a folder is on ("/Volumes/My Drive"), or None for the Mac's own disk."""
+    parts = os.path.abspath(path or "/").split(os.sep)
+    if WIN or len(parts) < 3 or parts[1] != "Volumes" or not parts[2]:
+        return None
+    root = os.path.join("/Volumes", parts[2])
+    return None if os.path.realpath(root) == "/" else root  # "/Volumes/Macintosh HD" is the Mac's own disk
+
+
+def unplugged(path):
+    """Is this folder on a drive that isn't plugged in right now?"""
+    d = drive_of(path)
+    return bool(d) and not os.path.ismount(d)
 
 
 def _find(name, candidates):
@@ -203,7 +225,8 @@ def _style():
                 ["status-right", " click a pane to type in it · drag borders to resize · Ctrl-b z zooms "],
                 ["status-right-length", "80"]):
         tmux("set-option", "-t", GRID, *opt)
-    for opt in (["pane-border-status", "top"], ["pane-border-format", " #{b:pane_current_path} "],
+    for opt in (["pane-border-status", "top"],
+                ["pane-border-format", " #{?@duo_wait,⏏ #{b:@duo_wait} (unplugged),#{b:pane_current_path}} "],
                 ["pane-active-border-style", "fg=#d97757"], ["pane-border-style", "fg=#555555"]):
         tmux("set-option", "-w", "-t", GRID, *opt)
 
@@ -214,13 +237,16 @@ def shell_cmd():
     return f"exec {shlex.quote(shell)} -l" + (" -o incappendhistory" if os.path.basename(shell) == "zsh" else "")
 
 
-def add_pane(cwd, args, claude=True, show=True, replay=None):
+def add_pane(cwd, args, claude=True, show=True, replay=None, cmd=None):
     """New pane in the grid (created on first use): `claude <args>`, or just your shell; then show it.
 
     A Claude pane becomes a normal shell when Claude exits, so it stays usable as a terminal.
     `replay` is a saved screen to print first, so a restored terminal pane shows what it showed before.
+    `cmd` runs instead of either (a pane waiting for its drive: see wait_cmd).
     """
-    if claude:
+    if cmd:
+        pass
+    elif claude:
         exe = claude_bin()
         if not exe:
             raise ValueError("Claude Code isn't installed (no `claude` command found).")
@@ -320,15 +346,145 @@ def grid_info():
     """The grid's panes for the window list: what each one runs and in which folder."""
     if not grid_exists():
         return []
-    out = tmux("list-panes", "-s", "-t", GRID, "-F",
-               "#{pane_id}\t#{pane_tty}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_active}").stdout
+    out = tmux("list-panes", "-s", "-t", GRID, "-F", PANE_FORMAT).stdout
     panes = []
     for line in out.splitlines():
         f = line.split("\t")
-        if len(f) == 5:
+        if len(f) == 9:
+            folder = f[5] or f[3]  # a parked pane is named after the folder it's waiting for
             panes.append({"pane": f[0], "tty": f[1], "command": f[2], "cwd": f[3], "active": f[4] == "1",
-                          "name": os.path.basename(f[3].rstrip("/")) or f[3]})
+                          "name": os.path.basename(folder.rstrip("/")) or folder,
+                          "waiting": f[5], "wait_sid": f[6] or None, "wait_claude": f[7] == "1",
+                          "pid": int(f[8]) if f[8].isdigit() else None})
     return panes
+
+
+def wait_cmd(cwd, session_id=None, claude=True):
+    """What a pane runs while its drive is unplugged: a note, then (checked every second) as soon as the folder
+    is back, the Claude conversation resumes there, or the terminal reopens there. Ctrl-C: a plain terminal now.
+    Parked for an eject, the drive is still there for a moment: it first waits for it to go (up to 20 s; an
+    eject that failed leaves it, and the pane resumes). Marked (@duo_wait) while waiting, for save and restore."""
+    me = f'{shlex.quote(tmux_bin() or "tmux")} set-option -p -t "$TMUX_PANE"'
+    q = shlex.quote(cwd)
+    drive = os.path.basename(drive_of(cwd) or os.path.dirname(cwd.rstrip("/")) or cwd)
+    if claude:
+        exe = claude_bin() or "claude"
+        run = shlex.join([exe, "--resume", session_id] if session_id else [exe, "--continue"])
+        what = "this Claude session picks up where it left off"
+    else:
+        run, what = ":", "this terminal reopens in its folder"
+    note = f"⏏  {drive} is unplugged. Plug it back in and {what}.   (Ctrl-C: use this pane for something else)"
+    denied = (f"Claude Duo isn't allowed to open {drive}. Turn it on in System Settings > Privacy & Security > "
+              "Files & Folders > Claude Duo > Removable Volumes.")
+    return (f"{me} @duo_wait {q}; {me} @duo_sid {shlex.quote(session_id or '')}; {me} @duo_claude {int(claude)}; "
+            f"printf '\\033[2m%s\\033[0m\\n' {shlex.quote(note)}; stop=; n=0; trap 'stop=1' INT; "
+            f'while [ -z "$stop" ] && [ -d {q} ] && [ $n -lt 100 ]; do sleep 0.2; n=$((n+1)); done; '
+            f'while [ -z "$stop" ] && [ ! -d {q} ]; do sleep 1; done; trap - INT; {me} -u @duo_wait; '
+            f'if [ -z "$stop" ]; then if cd {q}; then {run}; else printf \'%s\\n\' {shlex.quote(denied)}; fi; fi; '
+            f"{shell_cmd()}")
+
+
+def park(pane, cwd, session_id=None, claude=True):
+    """Stop what a pane runs (its drive is going away) and leave it waiting in its place for the drive."""
+    for opt, val in (("@duo_wait", cwd), ("@duo_sid", session_id or ""), ("@duo_claude", str(int(claude)))):
+        tmux("set-option", "-p", "-t", pane, opt, val)  # set before the swap, so a save in between sees it parked
+    return tmux("respawn-pane", "-k", "-t", pane, "-c", HOME, "-e", f"PATH={login_path()}",
+                wait_cmd(cwd, session_id, claude)).returncode == 0
+
+
+def _gone(pid):
+    try:
+        os.kill(pid, 0)
+        return False
+    except OSError:
+        return True
+
+
+def _tree(roots):
+    """These processes and every process they started (a pane's shell, its Claude, the tools Claude ran)."""
+    try:
+        out = subprocess.run(["ps", "-axo", "pid=,ppid="], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        out = ""
+    kids = {}
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+            kids.setdefault(int(parts[1]), []).append(int(parts[0]))
+    seen, todo = set(), [r for r in roots if r]
+    while todo:
+        pid = todo.pop()
+        if pid not in seen:
+            seen.add(pid)
+            todo.extend(kids.get(pid, []))
+    return seen
+
+
+def _wait_gone(pids, secs):
+    end = time.time() + secs
+    while time.time() < end and not all(_gone(p) for p in pids):
+        time.sleep(0.05)
+    return [p for p in pids if not _gone(p)]
+
+
+def release_drive(drive):
+    """Park every grid pane working on this drive, so nothing of theirs holds it (it can be ejected) and each one
+    resumes by itself when the drive is back. Returns how many panes were parked."""
+    mine = []
+    for p in grid_info():
+        if p["waiting"]:
+            continue
+        cwd = p["cwd"] if drive_of(p["cwd"]) == drive else _known.get(p["pane"], {}).get("cwd") or ""
+        if drive_of(cwd) == drive:
+            mine.append((p, cwd))
+    if not mine:
+        return 0
+    by_tty = {s["tty"]: s for s in running() if s["pane"]}
+    procs = _tree(p.get("pid") for p, _ in mine)  # before the swap: afterwards they're no longer the pane's
+    for p, cwd in mine:
+        s = by_tty.get(p["tty"])
+        sid = s and (s.get("session_id") or _known.get(p["pane"], {}).get("session_id"))
+        park(p["pane"], cwd, sid, claude=bool(s))
+    left = _wait_gone(procs, 2)  # each pane's shell and Claude exit when the pane is swapped
+    for pid in left:  # what they left running (a tool Claude started, say) would still hold the drive
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+    _wait_gone(left, 1)
+    save_grid()
+    return len(mine)
+
+
+def park_unplugged():
+    """Drives pulled out without ejecting: park their panes, which resume by themselves when the drive is back.
+    Returns {drive: panes parked}."""
+    gone = set()
+    for p in grid_info():
+        cwd = p["cwd"] if drive_of(p["cwd"]) else _known.get(p["pane"], {}).get("cwd") or ""
+        if not p["waiting"] and unplugged(cwd):
+            gone.add(drive_of(cwd))
+    return {d: n for d in sorted(gone) if (n := release_drive(d))}
+
+
+def _peek(folder):
+    try:
+        os.listdir(folder)
+    except OSError:
+        pass
+
+
+def ask_access(folders, wait=60):
+    """Look in each folder once from Claude Duo itself, so macOS asks "Claude Duo would like to access files on a
+    removable volume / in your Desktop folder" up front; the sessions it starts then get the same access.
+    Waits up to `wait` seconds for you to answer (a drive that doesn't respond can't hold things up longer)."""
+    import threading
+    looks = [threading.Thread(target=_peek, args=(d,), daemon=True) for d in dict.fromkeys(f for f in folders if f)]
+    for t in looks:
+        t.start()
+    end = time.time() + wait
+    for t in looks:
+        t.join(max(0, end - time.time()))
 
 
 def pane_action(pane, what):
@@ -354,11 +510,20 @@ def snapshot():
         return None
     by_tty = {s["tty"]: s for s in running() if s["pane"]}
     layout = tmux("display-message", "-p", "-t", GRID, "#{window_layout}").stdout.strip()
-    out = []
+    out, known = [], {}
     for p in panes:
-        claude = p["tty"] in by_tty
-        out.append({"cwd": p["cwd"], "session_id": (by_tty.get(p["tty"]) or {}).get("session_id"),
-                    "claude": claude, "screen": None if claude else save_screen(p["pane"])})
+        if p["waiting"]:  # parked: what it will resume when its drive is back
+            entry = {"cwd": p["waiting"], "session_id": p["wait_sid"], "claude": p["wait_claude"], "screen": None}
+        elif p["pane"] in _known and unplugged(_known[p["pane"]]["cwd"]):  # drive just pulled out, not parked yet
+            entry = _known[p["pane"]]
+        else:
+            claude = p["tty"] in by_tty
+            entry = {"cwd": p["cwd"], "session_id": (by_tty.get(p["tty"]) or {}).get("session_id"),
+                     "claude": claude, "screen": None if claude else save_screen(p["pane"])}
+        known[p["pane"]] = entry
+        out.append(entry)
+    _known.clear()
+    _known.update(known)
     return {"layout": layout, "panes": out}
 
 
@@ -415,12 +580,16 @@ def restore_grid():
     except (OSError, ValueError):
         return 0
     busy = {s["session_id"] for s in running() if s["session_id"]}  # already open elsewhere: don't run it twice
+    ask_access(p.get("cwd") for p in snap.get("panes", []) if os.path.isdir(p.get("cwd") or ""))
     made = 0
     for p in snap.get("panes", []):
         cwd = p.get("cwd") if os.path.isdir(p.get("cwd") or "") else os.path.expanduser("~")
         sid = p.get("session_id")
         try:
-            if p.get("claude") and sid and sid not in busy:
+            if unplugged(p.get("cwd")):  # its drive isn't plugged in: wait for it, and resume then
+                claude = bool(p.get("claude")) and sid not in busy
+                add_pane(HOME, [], show=False, cmd=wait_cmd(p["cwd"], sid if claude else None, claude))
+            elif p.get("claude") and sid and sid not in busy:
                 add_pane(cwd, ["--resume", sid], show=False)
             elif p.get("claude") and not sid:
                 add_pane(cwd, ["--continue"], show=False)

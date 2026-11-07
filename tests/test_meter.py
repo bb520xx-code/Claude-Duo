@@ -831,6 +831,129 @@ class Sessions(unittest.TestCase):
                 sessions.forget_grid()
                 self.assertFalse(os.path.exists(saved))
 
+    DRIVE = "/Volumes/Test Drive"
+    PROJ = "/Volumes/Test Drive/work/my proj"
+
+    def pane(self, pane, cwd, tty="", waiting="", sid=None, claude=False, pid=None):
+        return {"pane": pane, "tty": tty, "command": "zsh", "cwd": cwd, "active": False, "name": "",
+                "waiting": waiting, "wait_sid": sid, "wait_claude": claude, "pid": pid}
+
+    def test_drive_of(self):
+        self.assertEqual(sessions.drive_of(self.PROJ), self.DRIVE)
+        self.assertEqual(sessions.drive_of(self.DRIVE), self.DRIVE)
+        for path in ("/Users/x/proj", "/Volumes", "/", "", None):
+            self.assertIsNone(sessions.drive_of(path))
+        with mock.patch("os.path.realpath", return_value="/"):  # "/Volumes/Macintosh HD" is the Mac's own disk
+            self.assertIsNone(sessions.drive_of("/Volumes/Macintosh HD/Users/x"))
+        with mock.patch("os.path.ismount", return_value=False):
+            self.assertTrue(sessions.unplugged(self.PROJ))
+            self.assertFalse(sessions.unplugged("/Users/x/proj"))
+        with mock.patch("os.path.ismount", return_value=True):
+            self.assertFalse(sessions.unplugged(self.PROJ))
+
+    def test_wait_cmd_resumes_when_the_folder_is_back(self):
+        with mock.patch.object(sessions, "tmux_bin", return_value="/t/tmux"), \
+             mock.patch.object(sessions, "claude_bin", return_value="/u/bin/claude"):
+            cmd = sessions.wait_cmd(self.PROJ, "abc-123")
+            shell = sessions.wait_cmd(self.PROJ, claude=False)
+            fresh = sessions.wait_cmd(self.PROJ, None)
+        q = sessions.shlex.quote(self.PROJ)
+        self.assertIn(f"@duo_wait {q}", cmd)  # marked as waiting, for save and restore
+        self.assertIn(f"while [ -z \"$stop\" ] && [ ! -d {q} ]; do sleep 1; done", cmd)
+        self.assertIn(f"cd {q}; then /u/bin/claude --resume abc-123;", cmd)
+        self.assertIn("Test Drive is unplugged", cmd)
+        self.assertTrue(cmd.endswith(sessions.shell_cmd()))  # a terminal afterwards, as in every pane
+        self.assertIn(f"cd {q}; then :;", shell)  # a terminal pane just reopens in its folder
+        self.assertIn("/u/bin/claude --continue", fresh)  # no conversation id: the folder's latest one
+        self.assertLess(cmd.index("-u @duo_wait"), cmd.index(f"cd {q}"))
+
+    def test_release_drive_parks_only_that_drives_panes(self):
+        sessions._known.clear()
+        sessions._known["%2"] = {"cwd": self.PROJ, "session_id": "old", "claude": True, "screen": None}
+        panes = [self.pane("%1", "/Users/x/proj", "/dev/ttys001", pid=11),       # on the Mac
+                 self.pane("%2", "", "/dev/ttys002", pid=12),                     # pulled out: tmux lost the folder
+                 self.pane("%3", self.DRIVE + "/notes", "/dev/ttys003", pid=13),  # a terminal on the drive
+                 self.pane("%4", "/Users/x", waiting=self.PROJ)]                 # already parked
+        claude = {"pid": 22, "tty": "/dev/ttys002", "pane": "%2", "session_id": "abc-123"}
+        calls = []
+        with mock.patch.object(sessions, "grid_info", return_value=panes), \
+             mock.patch.object(sessions, "running", return_value=[claude]), \
+             mock.patch.object(sessions, "_tree", return_value={12, 13, 22}), \
+             mock.patch.object(sessions, "_gone", return_value=True), \
+             mock.patch.object(sessions, "wait_cmd", side_effect=lambda *a, **k: f"WAIT {a} {k}"), \
+             mock.patch.object(sessions, "tmux", side_effect=lambda *a: calls.append(a) or mock.Mock(returncode=0)), \
+             mock.patch.object(sessions, "save_grid") as save:
+            self.assertEqual(sessions.release_drive(self.DRIVE), 2)
+        respawned = {c[3]: c[-1] for c in calls if c[0] == "respawn-pane"}
+        self.assertEqual(respawned, {"%2": f"WAIT ('{self.PROJ}', 'abc-123', True) {{}}",
+                                     "%3": f"WAIT ('{self.DRIVE}/notes', None, False) {{}}"})
+        self.assertIn(("set-option", "-p", "-t", "%2", "@duo_wait", self.PROJ), calls)
+        self.assertTrue(all(sessions.HOME in c for c in calls if c[0] == "respawn-pane"))  # off the drive
+        save.assert_called_once()
+        with mock.patch.object(sessions, "grid_info", return_value=panes[:1]), \
+             mock.patch.object(sessions, "tmux") as t:
+            self.assertEqual(sessions.release_drive(self.DRIVE), 0)  # nothing on it: nothing touched
+            t.assert_not_called()
+
+    def test_release_drive_stops_what_panes_left_running(self):
+        panes = [self.pane("%3", self.DRIVE, "/dev/ttys003", pid=13)]
+        alive = {13, 99}
+        with mock.patch.object(sessions, "grid_info", return_value=panes), \
+             mock.patch.object(sessions, "running", return_value=[]), \
+             mock.patch.object(sessions, "_tree", return_value={13, 99}), \
+             mock.patch.object(sessions, "park", side_effect=lambda *a, **k: alive.discard(13) or True), \
+             mock.patch.object(sessions, "_gone", side_effect=lambda pid: pid not in alive), \
+             mock.patch("os.kill", side_effect=lambda pid, sig: alive.discard(pid)) as kill, \
+             mock.patch("time.sleep"), mock.patch.object(sessions, "save_grid"):
+            self.assertEqual(sessions.release_drive(self.DRIVE), 1)
+        kill.assert_called_once_with(99, sessions.signal.SIGTERM)  # e.g. a tool Claude started there
+
+    def test_park_unplugged(self):
+        sessions._known.clear()
+        sessions._known["%2"] = {"cwd": self.PROJ}
+        panes = [self.pane("%1", "/Users/x/proj"), self.pane("%2", ""), self.pane("%4", "/Users/x", waiting=self.PROJ)]
+        with mock.patch.object(sessions, "grid_info", return_value=panes), \
+             mock.patch.object(sessions, "release_drive", return_value=1) as rel:
+            with mock.patch("os.path.ismount", return_value=True):
+                self.assertEqual(sessions.park_unplugged(), {})  # still plugged in
+                rel.assert_not_called()
+            with mock.patch("os.path.ismount", return_value=False):
+                self.assertEqual(sessions.park_unplugged(), {self.DRIVE: 1})
+                rel.assert_called_once_with(self.DRIVE)
+
+    def test_snapshot_saves_parked_panes_as_waiting(self):
+        sessions._known.clear()
+        sessions._known["%2"] = {"cwd": self.PROJ, "session_id": "abc", "claude": True, "screen": None}
+        panes = [self.pane("%1", "/Users/x", waiting=self.PROJ, sid="abc-123", claude=True),
+                 self.pane("%2", "")]  # just pulled out, not parked yet
+        with mock.patch.object(sessions, "grid_info", return_value=panes), \
+             mock.patch.object(sessions, "running", return_value=[]), \
+             mock.patch.object(sessions, "tmux", return_value=mock.Mock(stdout="lay")), \
+             mock.patch("os.path.ismount", return_value=False):
+            snap = sessions.snapshot()
+        self.assertEqual(snap["panes"], [
+            {"cwd": self.PROJ, "session_id": "abc-123", "claude": True, "screen": None},
+            {"cwd": self.PROJ, "session_id": "abc", "claude": True, "screen": None}])
+
+    def test_restore_waits_for_an_unplugged_drive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            saved = os.path.join(tmp, "grid.json")
+            with open(saved, "w") as f:
+                json.dump({"layout": "l", "panes": [{"cwd": self.PROJ, "session_id": "s-1", "claude": True},
+                                                    {"cwd": self.PROJ, "session_id": None, "claude": False}]}, f)
+            with mock.patch.object(sessions, "SAVED", saved), \
+                 mock.patch.object(sessions, "tmux_bin", return_value="/t/tmux"), \
+                 mock.patch.object(sessions, "grid_exists", return_value=False), \
+                 mock.patch.object(sessions, "running", return_value=[]), \
+                 mock.patch("os.path.ismount", return_value=False), \
+                 mock.patch.object(sessions, "wait_cmd", side_effect=lambda *a: f"WAIT {a}"), \
+                 mock.patch.object(sessions, "add_pane") as add, mock.patch.object(sessions, "tmux"), \
+                 mock.patch.object(sessions, "show_grid"):
+                self.assertEqual(sessions.restore_grid(), 2)
+        self.assertEqual(add.call_args_list, [
+            mock.call(sessions.HOME, [], show=False, cmd=f"WAIT {(self.PROJ, 's-1', True)}"),
+            mock.call(sessions.HOME, [], show=False, cmd=f"WAIT {(self.PROJ, None, False)}")])
+
     def test_finished_detects_busy_to_idle(self):
         now = [{"pid": 1, "status": "idle"}, {"pid": 2, "status": "busy"}, {"pid": 3, "status": "idle"}]
         self.assertEqual([s["pid"] for s in sessions.finished({1: "busy", 2: "busy", 3: "idle"}, now)], [1])
@@ -843,6 +966,28 @@ class Sessions(unittest.TestCase):
                 f.write(json.dumps({"type": "summary"}) + "\n" + json.dumps({"cwd": tmp}) + "\n")
             with mock.patch.object(sessions, "PROJECTS", tmp):
                 self.assertEqual(sessions.recent_folders(), [tmp])
+
+
+class LaunchAtLogin(unittest.TestCase):
+    def test_follows_the_app_when_it_moves(self):
+        import plistlib
+        with tempfile.TemporaryDirectory() as tmp:
+            plist = os.path.join(tmp, "local.claude.usage.plist")
+            job = {"Label": "local.claude.usage", "RunAtLoad": True,
+                   "ProgramArguments": ["/usr/bin/open", "/old/place/Claude Duo.app", "--args", "--background"]}
+            with open(plist, "wb") as f:
+                plistlib.dump(job, f)
+            with mock.patch.object(meter, "LAUNCH_PLIST", plist), mock.patch.object(meter, "WIN", False):
+                self.assertTrue(meter.fix_login("/Users/x/Applications/Claude Duo.app"))
+                with open(plist, "rb") as f:
+                    self.assertEqual(plistlib.load(f)["ProgramArguments"],
+                                     ["/usr/bin/open", "/Users/x/Applications/Claude Duo.app", "--args", "--background"])
+                self.assertFalse(meter.fix_login("/Users/x/Applications/Claude Duo.app"))  # already right
+                with open(plist, "wb") as f:
+                    plistlib.dump({**job, "Label": "someone.else"}, f)
+                self.assertFalse(meter.fix_login("/new/Claude Duo.app"))  # not ours: left alone
+            with mock.patch.object(meter, "LAUNCH_PLIST", os.path.join(tmp, "none.plist")):
+                self.assertFalse(meter.fix_login("/new/Claude Duo.app"))  # Launch at login is off
 
 
 @unittest.skipUnless(sys.platform == "darwin", "the menu bar app is the Mac one")

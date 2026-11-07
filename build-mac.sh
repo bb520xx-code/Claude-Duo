@@ -9,7 +9,7 @@ rm -rf build dist
   --osx-bundle-identifier local.claude.duo \
   --add-data "index.html:." --add-data "compact.html:." --add-data "settings.html:." --add-data "sessions.html:." \
   --add-data "glass.css:." --add-data "ui.js:." --add-data "iphone:iphone" \
-  --hidden-import phone --hidden-import statusline --hidden-import menubar macapp.py
+  --hidden-import phone --hidden-import statusline --hidden-import menubar --hidden-import drives macapp.py
 APP="dist/Claude Duo.app"
 # a menu bar app: no Dock icon
 plutil -insert LSUIElement -bool true "$APP/Contents/Info.plist"

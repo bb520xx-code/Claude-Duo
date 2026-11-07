@@ -128,6 +128,28 @@ def set_login(on):
         os.remove(LAUNCH_PLIST)
 
 
+def fix_login(app_path):
+    """Launch at login is on but opens the app from somewhere else (it was moved): open this copy instead.
+    Mac only; returns True when it changed something."""
+    if WIN or not app_path or not os.path.exists(LAUNCH_PLIST):
+        return False
+    import plistlib
+    try:
+        with open(LAUNCH_PLIST, "rb") as f:
+            job = plistlib.load(f)
+        args = job.get("ProgramArguments")
+        if job.get("Label") != "local.claude.usage" or not isinstance(args, list) or len(args) < 2 \
+                or args[0] != "/usr/bin/open" or args[1] == app_path:
+            return False
+        args[1] = app_path
+        with open(LAUNCH_PLIST + ".tmp", "wb") as f:
+            plistlib.dump(job, f)
+        os.replace(LAUNCH_PLIST + ".tmp", LAUNCH_PLIST)
+        return True
+    except (OSError, ValueError, plistlib.InvalidFileException):
+        return False
+
+
 def save_config(cfg):
     with open(CONFIG, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
